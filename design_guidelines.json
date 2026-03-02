@@ -1,0 +1,167 @@
+{
+  "identity": {
+    "name": "E1",
+    "role": "Creative Designer",
+    "principles": [
+      "Fusion over Imitation: Mix disparate disciplines.",
+      "Emotion First: Design for feeling, not trend.",
+      "Content is King: Direct the user's eye like a film scene.",
+      "Zoom In: Bold focus on details.",
+      "Negative Space: Value empty areas.",
+      "Contrast: Light vs Dark, Big vs Small."
+    ]
+  },
+  "design_system": {
+    "theme": "Minimalist Monochrome (Archetype 4: Swiss & High-Contrast)",
+    "typography": {
+      "headings": {
+        "font_family": "Chivo, sans-serif",
+        "weights": ["700", "900"],
+        "usage": "Use for all major headings (h1-h3). Tight tracking (-0.02em).",
+        "fallback": "system-ui"
+      },
+      "body": {
+        "font_family": "Inter, sans-serif",
+        "weights": ["400", "500"],
+        "usage": "Use for all body text, inputs, and labels.",
+        "fallback": "sans-serif"
+      },
+      "mono": {
+        "font_family": "JetBrains Mono, monospace",
+        "usage": "Use for OTP inputs, financial data, and reference numbers."
+      }
+    },
+    "colors": {
+      "palette": {
+        "primary": "#09090B",
+        "primary_foreground": "#FAFAFA",
+        "secondary": "#F4F4F5",
+        "secondary_foreground": "#18181B",
+        "background": "#FFFFFF",
+        "surface": "#FAFAFA",
+        "border": "#E4E4E7",
+        "muted": "#71717A",
+        "accent": "#000000",
+        "success": "#10B981",
+        "error": "#EF4444",
+        "warning": "#F59E0B"
+      },
+      "rules": [
+        "Strict Monochrome: 95% of the UI must be black, white, or gray.",
+        "Action Color: Use pure Black (#000000) for primary actions (Buttons).",
+        "Functional Colors: Use Green/Red only for status indicators (Success/Error).",
+        "No Gradients: Use solid colors or subtle noise textures."
+      ]
+    },
+    "spacing": {
+      "scale": "Tailwind default but doubled for breathing room (p-8, p-12).",
+      "containers": "Max width 1400px for dashboard, 600px for forms.",
+      "grid_gap": "gap-6 or gap-8"
+    },
+    "visual_enhancers": {
+      "borders": "1px solid #E4E4E7 (gray-200). Sharp or minimal radius (rounded-sm).",
+      "shadows": "None or extremely subtle (shadow-sm). Prefer borders over shadows.",
+      "glassmorphism": "Use sparingly. Only for sticky headers: bg-white/80 backdrop-blur-md border-b.",
+      "textures": "Subtle noise overlay on the auth background image if needed."
+    },
+    "animation": {
+      "micro_interactions": "transition-all duration-200 ease-out",
+      "page_transition": "Fade in + Slide up (10px)",
+      "hover": "translate-y-[-1px] for cards/buttons"
+    }
+  },
+  "components": {
+    "buttons": {
+      "style": "Sharp or slightly rounded (rounded-md).",
+      "primary": "bg-black text-white hover:bg-gray-800",
+      "secondary": "bg-white border border-gray-200 text-black hover:bg-gray-50",
+      "ghost": "hover:bg-gray-100 text-gray-600 hover:text-black"
+    },
+    "inputs": {
+      "style": "Flat, 1px border. rounded-md.",
+      "focus": "ring-1 ring-black border-black transition-all",
+      "error": "border-red-500 focus:ring-red-500"
+    },
+    "cards": {
+      "style": "bg-white border border-gray-200 rounded-lg p-6",
+      "hover": "hover:border-gray-300 transition-colors"
+    },
+    "stepper": {
+      "style": "Minimalist. Active step: Black circle. Inactive: Gray outline. Completed: Checkmark.",
+      "connector": "Thin gray line."
+    }
+  },
+  "pages": {
+    "auth": {
+      "layout": "Split Screen (50/50 or 40/60)",
+      "left_panel": {
+        "content": "Login/Signup Forms",
+        "alignment": "Center vertically, align left/center horizontally",
+        "padding": "p-12 lg:p-24"
+      },
+      "right_panel": {
+        "content": "Brand Image + Logo Overlay",
+        "image_url": "https://images.unsplash.com/photo-1549791084-5f78368b208b?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "overlay": "Subtle gradient from bottom (black/50 to transparent) for text readability if needed."
+      }
+    },
+    "dashboard": {
+      "layout": "Sidebar + Main Content Area",
+      "sidebar": "Fixed width (250px). Minimalist links. Active state: bold + black border-l-2.",
+      "header": "Breadcrumbs + User Profile + Notifications",
+      "content": "Bento Grid layout for KYC Status widgets."
+    },
+    "kyc_form": {
+      "layout": "Centered Single Column Wizard",
+      "width": "max-w-2xl",
+      "steps": ["Basic Details", "Identity", "Business", "Bank", "Selfie"],
+      "progress": "Top bar or Left side vertical stepper (Desktop)",
+      "actions": "Sticky footer on mobile, inline on desktop."
+    }
+  },
+  "assets": {
+    "images": {
+      "auth_background": {
+        "url": "https://images.unsplash.com/photo-1549791084-5f78368b208b?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "alt": "Minimalist White Architecture",
+        "category": "background"
+      },
+      "placeholder_logo": {
+        "text": "CASHFREE",
+        "font": "Chivo Black",
+        "style": "Tracking-tighter, Uppercase"
+      }
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5px (Thin/Elegant)"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Implement the 'Minimalist Monochrome' theme strictly. Avoid colorful gradients.",
+    "Use the provided Unsplash image for the Auth page right panel.",
+    "For the 'Cashfree Payments' logo, render a high-quality text-based logo using the 'Chivo' font if an SVG is not available.",
+    "Ensure the KYC form is broken down into 5 distinct steps with a clear progress indicator.",
+    "Use 'sonner' for all toast notifications (success/error).",
+    "Add 'data-testid' to all interactive elements.",
+    "Follow the 'Bento Grid' layout for the dashboard status overview.",
+    "Mock the OTP verification flow (accept any 6-digit code or specific '123456')."
+  ],
+  "universal_guidelines": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) sparingly.",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; }.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Components MUST use named exports.",
+    "Pages MUST use default exports.",
+    "Use sonner for toasts."
+  ]
+}
