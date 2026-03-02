@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.database import get_database
 from app.models.kyc import KYCStatus
+from app.services.boto import get_s3_client
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -79,13 +80,7 @@ async def get_all_merchants():
                 "identity_details": kyc.get("identity_details"),
                 "business_details": kyc.get("business_details"),
                 "bank_details": kyc.get("bank_details"),
-                "documents": {
-                    "aadhaar_front": kyc.get("aadhaar_front"),
-                    "aadhaar_back": kyc.get("aadhaar_back"),
-                    "pan_card": kyc.get("pan_card"),
-                    "cancelled_cheque": kyc.get("cancelled_cheque"),
-                    "selfie": kyc.get("selfie"),
-                },
+                "documents": _get_document_urls(kyc),
                 "admin_notes": kyc.get("admin_notes", ""),
                 "ai_score": kyc.get("ai_score", _generate_ai_score(kyc)),
                 "risk_level": kyc.get("risk_level", _calculate_risk_level(kyc)),
@@ -130,13 +125,7 @@ async def get_merchant_detail(user_id: str):
         "identity_details": kyc.get("identity_details"),
         "business_details": kyc.get("business_details"),
         "bank_details": kyc.get("bank_details"),
-        "documents": {
-            "aadhaar_front": kyc.get("aadhaar_front"),
-            "aadhaar_back": kyc.get("aadhaar_back"),
-            "pan_card": kyc.get("pan_card"),
-            "cancelled_cheque": kyc.get("cancelled_cheque"),
-            "selfie": kyc.get("selfie"),
-        },
+        "documents": _get_document_urls(kyc),
         "admin_notes": kyc.get("admin_notes", ""),
         "ai_score": kyc.get("ai_score", _generate_ai_score(kyc)),
         "risk_level": kyc.get("risk_level", _calculate_risk_level(kyc)),
@@ -208,6 +197,75 @@ async def save_admin_notes(notes_update: NotesUpdate):
 
 
 # ── Helper Functions ──────────────────────────────────────────────────────
+
+
+def _extract_s3_key_from_url(s3_url: str, bucket_name: str, region: str) -> str:
+    """
+    Extract S3 key from full S3 URL.
+    
+    Example: https://bucket.s3.region.amazonaws.com/folder/file.jpg -> folder/file.jpg
+    """
+    if not s3_url:
+        return None
+        
+    # Check if it's already just a key (doesn't start with http)
+    if not s3_url.startswith("http"):
+        return s3_url
+    
+    # Extract key from URL pattern: https://bucket.s3.region.amazonaws.com/KEY
+    try:
+        url_prefix = f"https://{bucket_name}.s3.{region}.amazonaws.com/"
+        if s3_url.startswith(url_prefix):
+            return s3_url[len(url_prefix):]
+        
+        # Alternative format: https://s3.region.amazonaws.com/bucket/KEY
+        alt_prefix = f"https://s3.{region}.amazonaws.com/{bucket_name}/"
+        if s3_url.startswith(alt_prefix):
+            return s3_url[len(alt_prefix):]
+            
+        # If we can't parse it, return as-is
+        logger.warning(f"[ADMIN] Could not extract S3 key from URL: {s3_url}")
+        return s3_url
+    except Exception as e:
+        logger.warning(f"[ADMIN] Error extracting S3 key: {e}")
+        return s3_url
+
+
+def _get_document_urls(kyc: dict) -> dict:
+    """Convert S3 document URLs/keys to presigned URLs."""
+    documents = {}
+    doc_fields = ["aadhaar_front", "aadhaar_back", "pan_card", "cancelled_cheque", "selfie"]
+    
+    try:
+        s3_client = get_s3_client()
+        bucket_name = s3_client.bucket_name
+        region = s3_client.region
+        
+        logger.info(f"[ADMIN] S3 Config - Bucket: {bucket_name}, Region: {region}")
+        
+        for field in doc_fields:
+            stored_value = kyc.get(field)
+            if stored_value:
+                logger.info(f"[ADMIN] Processing {field}: {stored_value}")
+                # Extract just the S3 key from the full URL if needed
+                s3_key = _extract_s3_key_from_url(stored_value, bucket_name, region)
+                logger.info(f"[ADMIN] Extracted key for {field}: {s3_key}")
+                
+                if s3_key:
+                    # Generate presigned URL valid for 1 hour
+                    presigned_url = s3_client.generate_presigned_url(s3_key, expiration=3600)
+                    documents[field] = presigned_url if presigned_url else stored_value
+                else:
+                    documents[field] = stored_value
+            else:
+                documents[field] = None
+    except Exception as e:
+        logger.warning(f"[ADMIN] Error generating presigned URLs: {e}")
+        # Fallback to original values
+        for field in doc_fields:
+            documents[field] = kyc.get(field)
+    
+    return documents
 
 
 def _generate_ai_score(kyc: dict) -> int:

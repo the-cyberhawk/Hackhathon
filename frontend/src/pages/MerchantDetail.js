@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getMerchantDetail, updateMerchantStatus, saveAdminNotes } from '../api';
 
-const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
-
 export default function MerchantDetail({ userId, onBack }) {
     const [merchant, setMerchant] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -79,13 +77,6 @@ export default function MerchantDetail({ userId, onBack }) {
             High: { bg: '#fee2e2', color: '#991b1b' },
         };
         return colors[risk] || colors.Medium;
-    };
-
-    const getDocumentUrl = (path) => {
-        if (!path) return null;
-        // Convert local file path to URL
-        const filename = path.split('/').pop();
-        return `${API_BASE}/uploads/${filename}`;
     };
 
     if (loading) {
@@ -310,7 +301,7 @@ export default function MerchantDetail({ userId, onBack }) {
                                 {merchant.documents?.[doc.key] ? (
                                     <div>
                                         <img
-                                            src={getDocumentUrl(merchant.documents[doc.key])}
+                                            src={merchant.documents[doc.key]}
                                             alt={doc.label}
                                             style={{ width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }}
                                             onError={(e) => {
@@ -320,7 +311,7 @@ export default function MerchantDetail({ userId, onBack }) {
                                         />
                                         <div style={{ display: 'none', padding: '2rem', background: '#f5f5f5', borderRadius: '8px', textAlign: 'center' }}>
                                             <p style={{ color: 'var(--text-dim)' }}>Unable to load image</p>
-                                            <a href={getDocumentUrl(merchant.documents[doc.key])} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
+                                            <a href={merchant.documents[doc.key]} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
                                                 Open File
                                             </a>
                                         </div>
