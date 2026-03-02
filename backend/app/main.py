@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import close_connection, get_database
-from app.routers import auth, kyc, users
+from app.routers import admin, auth, kyc, users
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
     api_router.include_router(auth.router)
     api_router.include_router(users.router)
     api_router.include_router(kyc.router)
+    api_router.include_router(admin.router)
     application.include_router(api_router)
 
     # ── Static files for uploads ──────────────────────────────────────────

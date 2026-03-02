@@ -60,4 +60,18 @@ export const submitKyc = () => api.post('/kyc/submit');
 
 export const getKycData = () => api.get('/kyc/data');
 
+// ── Admin ────────────────────────────────────────────────────────────
+export const adminLogin = (username, password) =>
+    api.post('/admin/login', { username, password });
+
+export const getMerchants = () => api.get('/admin/merchants');
+
+export const getMerchantDetail = (userId) => api.get(`/admin/merchants/${userId}`);
+
+export const updateMerchantStatus = (userId, status, notes) =>
+    api.post('/admin/update-status', { user_id: userId, status, notes });
+
+export const saveAdminNotes = (userId, notes) =>
+    api.post('/admin/save-notes', { user_id: userId, notes });
+
 export default api;
