@@ -24,5 +24,12 @@ class Settings:
     # Local file upload directory (relative to backend/)
     UPLOAD_DIR: Path = ROOT_DIR / "uploads"
 
+    # AWS S3 Configuration
+    USE_S3: bool = os.environ.get("USE_S3", "false").lower() == "true"
+    AWS_ACCESS_KEY_ID: str = os.environ.get("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY: str = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+    AWS_REGION: str = os.environ.get("AWS_REGION", "us-east-1")
+    AWS_S3_BUCKET: str = os.environ.get("AWS_S3_BUCKET", "")
+
 
 settings = Settings()

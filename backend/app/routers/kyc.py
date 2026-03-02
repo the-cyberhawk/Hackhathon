@@ -3,8 +3,6 @@ KYC workflow routes — multi-step document collection and submission.
 
 All routes are prefixed with /api/kyc via main.py router registration.
 """
-import uuid
-import shutil
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -21,6 +19,7 @@ from app.models.kyc import (
     KYCDataResponse,
     KYCStatus,
 )
+from app.services.boto import get_s3_client
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -28,14 +27,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kyc", tags=["KYC"])
 
 
-def _save_upload(upload: UploadFile) -> str:
-    """Persist an uploaded file and return its path as a string."""
-    settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    dest = settings.UPLOAD_DIR / f"{uuid.uuid4()}_{upload.filename}"
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(upload.file, f)
-    logger.info(f"[UPLOAD] Saved file: {upload.filename} -> {dest}")
-    return str(dest)
+def _save_upload(upload: UploadFile, folder: str = "kyc-documents") -> str:
+    """
+    Upload file to S3 and return the S3 URL.
+    
+    Args:
+        upload: File to upload
+        folder: S3 folder name
+        
+    Returns:
+        str: S3 URL of uploaded file
+    """
+    s3 = get_s3_client()
+    s3_url = s3.upload_file(upload, folder=folder)
+    return s3_url
 
 
 # ── Status ────────────────────────────────────────────────────────────────
