@@ -21,8 +21,8 @@ class Settings:
     # CORS — comma-separated origins in env, e.g. "http://localhost:3000,https://app.example.com"
     CORS_ORIGINS: list[str] = os.environ.get("CORS_ORIGINS", "*").split(",")
 
-    # Local file upload directory
-    UPLOAD_DIR: Path = Path("/app/uploads")
+    # Local file upload directory (relative to backend/)
+    UPLOAD_DIR: Path = ROOT_DIR / "uploads"
 
 
 settings = Settings()

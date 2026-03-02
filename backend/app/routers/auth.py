@@ -4,6 +4,7 @@ Authentication routes — signup, OTP, login, password reset.
 All routes are prefixed with /api/auth via main.py router registration.
 """
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException
@@ -20,6 +21,9 @@ from app.models.user import (
 )
 from app.core.security import hash_password, verify_password, create_access_token
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # ---------------------------------------------------------------------------
@@ -32,12 +36,15 @@ OTP_TTL_MINUTES = 10
 @router.post("/signup")
 async def signup(user_data: UserCreate):
     """Register a new merchant account and send phone OTP."""
+    logger.info(f"[SIGNUP] New signup request: email={user_data.email}, phone={user_data.phone}")
+    
     db = get_database()
     existing = await db.users.find_one(
         {"$or": [{"email": user_data.email}, {"phone": user_data.phone}]},
         {"_id": 0},
     )
     if existing:
+        logger.warning(f"[SIGNUP] Email or phone already registered: {user_data.email}")
         raise HTTPException(status_code=400, detail="Email or phone already registered")
 
     user_id = str(uuid.uuid4())
@@ -54,6 +61,7 @@ async def signup(user_data: UserCreate):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
+    logger.info(f"[SIGNUP] User created successfully: user_id={user_id}")
 
     # TODO: integrate real SMS gateway here
     return {"message": "User created. OTP sent to phone.", "otp": DEMO_OTP, "user_id": user_id}
@@ -78,15 +86,20 @@ async def send_otp(request: OTPRequest):
 @router.post("/verify-otp")
 async def verify_otp(request: OTPVerify):
     """Verify phone OTP and issue a JWT access token."""
+    logger.info(f"[VERIFY-OTP] Verification request for phone: {request.phone}")
+    
     db = get_database()
     user = await db.users.find_one({"phone": request.phone}, {"_id": 0})
     if not user:
+        logger.warning(f"[VERIFY-OTP] User not found: {request.phone}")
         raise HTTPException(status_code=404, detail="User not found")
     if user.get("otp") != request.otp:
+        logger.warning(f"[VERIFY-OTP] Invalid OTP for phone: {request.phone}")
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     otp_expiry = datetime.fromisoformat(user["otp_expiry"])
     if datetime.now(timezone.utc) > otp_expiry:
+        logger.warning(f"[VERIFY-OTP] OTP expired for phone: {request.phone}")
         raise HTTPException(status_code=400, detail="OTP expired")
 
     await db.users.update_one(
@@ -96,6 +109,7 @@ async def verify_otp(request: OTPVerify):
 
     user = await db.users.find_one({"phone": request.phone}, {"_id": 0})
     token = create_access_token({"sub": user["user_id"]})
+    logger.info(f"[VERIFY-OTP] User verified successfully: {user['user_id']}")
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -111,17 +125,22 @@ async def verify_otp(request: OTPVerify):
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest):
     """Authenticate with email or phone + password and receive a JWT."""
+    logger.info(f"[LOGIN] Login attempt: {request.identifier}")
+    
     db = get_database()
     user = await db.users.find_one(
         {"$or": [{"email": request.identifier}, {"phone": request.identifier}]},
         {"_id": 0},
     )
     if not user or not verify_password(request.password, user["password_hash"]):
+        logger.warning(f"[LOGIN] Invalid credentials for: {request.identifier}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.get("is_verified"):
+        logger.warning(f"[LOGIN] User not verified: {request.identifier}")
         raise HTTPException(status_code=403, detail="Please verify your phone number first")
 
     token = create_access_token({"sub": user["user_id"]})
+    logger.info(f"[LOGIN] Login successful: user_id={user['user_id']}")
     return {
         "access_token": token,
         "token_type": "bearer",

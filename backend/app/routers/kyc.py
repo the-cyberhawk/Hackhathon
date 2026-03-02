@@ -5,6 +5,7 @@ All routes are prefixed with /api/kyc via main.py router registration.
 """
 import uuid
 import shutil
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -21,6 +22,9 @@ from app.models.kyc import (
     KYCStatus,
 )
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/kyc", tags=["KYC"])
 
 
@@ -30,6 +34,7 @@ def _save_upload(upload: UploadFile) -> str:
     dest = settings.UPLOAD_DIR / f"{uuid.uuid4()}_{upload.filename}"
     with open(dest, "wb") as f:
         shutil.copyfileobj(upload.file, f)
+    logger.info(f"[UPLOAD] Saved file: {upload.filename} -> {dest}")
     return str(dest)
 
 
@@ -62,6 +67,9 @@ async def save_step1(
     data: BasicDetails, current_user: dict = Depends(get_current_user)
 ):
     """Save personal / address information."""
+    logger.info(f"[STEP 1] User: {current_user['user_id']}")
+    logger.info(f"[STEP 1] Received data: {data.model_dump()}")
+    
     db = get_database()
     update_data = {
         "user_id": current_user["user_id"],
@@ -77,8 +85,10 @@ async def save_step1(
         await db.kyc_data.update_one(
             {"user_id": current_user["user_id"]}, {"$set": update_data}
         )
+        logger.info(f"[STEP 1] Updated existing record for user: {current_user['user_id']}")
     else:
         await db.kyc_data.insert_one(update_data)
+        logger.info(f"[STEP 1] Created new KYC record for user: {current_user['user_id']}")
 
     return {"message": "Step 1 saved", "status": "success"}
 
@@ -96,6 +106,10 @@ async def save_step2(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload Aadhaar & PAN images along with their numbers."""
+    logger.info(f"[STEP 2] User: {current_user['user_id']}")
+    logger.info(f"[STEP 2] Aadhaar: {aadhaar_number}, PAN: {pan_number}")
+    logger.info(f"[STEP 2] Files: aadhaar_front={aadhaar_front.filename}, aadhaar_back={aadhaar_back.filename}, pan_card={pan_card.filename}")
+    
     db = get_database()
     update_data = {
         "identity_details": {
@@ -112,6 +126,7 @@ async def save_step2(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
+    logger.info(f"[STEP 2] Saved identity documents for user: {current_user['user_id']}")
     return {"message": "Step 2 saved", "status": "success"}
 
 
@@ -123,6 +138,9 @@ async def save_step3(
     data: BusinessDetails, current_user: dict = Depends(get_current_user)
 ):
     """Save business / GST information."""
+    logger.info(f"[STEP 3] User: {current_user['user_id']}")
+    logger.info(f"[STEP 3] Business data: {data.model_dump()}")
+    
     db = get_database()
     update_data = {
         "business_details": data.model_dump(),
@@ -133,6 +151,7 @@ async def save_step3(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
+    logger.info(f"[STEP 3] Saved business details for user: {current_user['user_id']}")
     return {"message": "Step 3 saved", "status": "success"}
 
 
@@ -149,6 +168,10 @@ async def save_step4(
     current_user: dict = Depends(get_current_user),
 ):
     """Save bank account details and optional cancelled cheque."""
+    logger.info(f"[STEP 4] User: {current_user['user_id']}")
+    logger.info(f"[STEP 4] Bank: {bank_name}, Account: {account_number}, IFSC: {ifsc_code}")
+    logger.info(f"[STEP 4] Cancelled cheque: {cancelled_cheque.filename if cancelled_cheque else 'None'}")
+    
     db = get_database()
     update_data = {
         "bank_details": {
@@ -167,6 +190,7 @@ async def save_step4(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
+    logger.info(f"[STEP 4] Saved bank details for user: {current_user['user_id']}")
     return {"message": "Step 4 saved", "status": "success"}
 
 
@@ -179,6 +203,9 @@ async def save_step5(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload a selfie for facial verification."""
+    logger.info(f"[STEP 5] User: {current_user['user_id']}")
+    logger.info(f"[STEP 5] Selfie file: {selfie.filename}")
+    
     db = get_database()
     update_data = {
         "selfie": _save_upload(selfie),
@@ -189,6 +216,7 @@ async def save_step5(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
+    logger.info(f"[STEP 5] Saved selfie for user: {current_user['user_id']}")
     return {"message": "Step 5 saved", "status": "success"}
 
 
