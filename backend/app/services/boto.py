@@ -102,9 +102,13 @@ class S3Client:
             # Construct S3 key
             s3_key = f"{folder}/{filename}".strip("/")
 
-            # Prepare metadata
-            file_metadata = metadata or {}
-            file_metadata["original_filename"] = file.filename
+            # Prepare metadata - sanitize to ASCII only (S3 requirement)
+            def sanitize_for_s3(value: str) -> str:
+                """Remove non-ASCII characters for S3 metadata."""
+                return value.encode('ascii', 'replace').decode('ascii')
+            
+            file_metadata = {k: sanitize_for_s3(str(v)) for k, v in (metadata or {}).items()}
+            file_metadata["original_filename"] = sanitize_for_s3(file.filename or "unknown")
             file_metadata["uploaded_at"] = datetime.utcnow().isoformat()
 
             # Extra arguments for upload
