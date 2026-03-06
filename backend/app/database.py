@@ -10,7 +10,13 @@ _client: AsyncIOMotorClient | None = None
 def get_client() -> AsyncIOMotorClient:
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.MONGO_URL)
+        kwargs = {}
+        # If running on AWS DocumentDB, we need TLS/SSL CA file
+        if settings.MONGO_TLS_CA_FILE:
+            kwargs["tls"] = True
+            kwargs["tlsCAFile"] = settings.MONGO_TLS_CA_FILE
+        
+        _client = AsyncIOMotorClient(settings.MONGO_URL, **kwargs)
     return _client
 
 
