@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMerchantDetail, updateMerchantStatus, saveAdminNotes } from '../api';
+import { getMerchantDetail, updateMerchantStatus, saveAdminNotes, generateAiReport } from '../api';
 
 export default function MerchantDetail({ userId, onBack }) {
     const [merchant, setMerchant] = useState(null);
@@ -48,6 +48,21 @@ export default function MerchantDetail({ userId, onBack }) {
             setMessage('Notes saved successfully');
         } catch (err) {
             setMessage(err.response?.data?.detail || 'Save failed');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleGenerateAiReport = async () => {
+        setSaving(true);
+        setMessage('');
+        try {
+            const { data } = await generateAiReport(userId);
+            setMessage('AI report generated successfully');
+            // Refresh merchant data to show new report
+            await fetchMerchant();
+        } catch (err) {
+            setMessage(err.response?.data?.detail || 'AI report generation failed');
         } finally {
             setSaving(false);
         }
@@ -319,105 +334,266 @@ export default function MerchantDetail({ userId, onBack }) {
                             <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>🤖</div>
                             <p style={{ color: '#6b7280' }}>No AI report available — KYC not started</p>
                         </div>
-                    ) : merchant.ai_report ? (
+                    ) : (
                         <div style={{ display: 'grid', gap: '1.25rem' }}>
-                            {/* AI Recommendation */}
-                            <div className="card">
-                                <div className="data-section-title">🤖 AI Recommendation</div>
-                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    <span style={{
-                                        fontSize: '1.1rem', fontWeight: 700,
-                                        padding: '.5rem 1rem', borderRadius: 8,
-                                        background: merchant.ai_report.recommendation === 'Approve' ? '#f0fdf4' : merchant.ai_report.recommendation === 'Reject' ? '#fef2f2' : '#fffbeb',
-                                        color: merchant.ai_report.recommendation === 'Approve' ? '#166534' : merchant.ai_report.recommendation === 'Reject' ? '#991b1b' : '#854d0e',
-                                        border: `1px solid ${merchant.ai_report.recommendation === 'Approve' ? '#bbf7d0' : merchant.ai_report.recommendation === 'Reject' ? '#fecaca' : '#fde68a'}`,
-                                    }}>
-                                        {merchant.ai_report.recommendation}
-                                    </span>
-                                    <span style={{ color: '#6b7280', fontSize: '.9rem' }}>
-                                        Confidence: <strong>{merchant.ai_report.confidence}</strong>
-                                    </span>
-                                </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleGenerateAiReport}
+                                    disabled={saving}
+                                >
+                                    {saving ? <span className="spinner" /> : (merchant.ai_report ? '↻ Refresh AI Report' : '✨ Generate AI Report')}
+                                </button>
                             </div>
 
-                            {/* Risk Factors */}
-                            <div className="card">
-                                <div className="data-section-title">📊 Risk Factor Analysis</div>
-                                <div style={{ display: 'grid', gap: '.75rem' }}>
-                                    {merchant.ai_report.risk_factors?.map((factor, idx) => (
-                                        <div key={idx} style={{
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            padding: '.75rem 1rem', background: '#f9fafb', borderRadius: 8,
-                                            border: '1px solid #f3f4f6',
-                                        }}>
-                                            <div>
-                                                <div style={{ fontWeight: 600, color: '#1f2937' }}>{factor.factor}</div>
-                                                <div style={{ fontSize: '.8rem', color: '#6b7280' }}>{factor.status}</div>
+                            {!merchant.ai_report ? (
+                                <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
+                                    <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>🤖</div>
+                                    <p style={{ color: '#6b7280' }}>AI report data not populated yet.</p>
+                                    <p style={{ color: '#9ca3af', fontSize: '.9rem', marginTop: '.5rem' }}>Click "Generate AI Report" above to run the analysis.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* AI Recommendation & Summary */}
+                                    <div className="card">
+                                        <div className="data-section-title">🤖 AI Recommendation</div>
+                                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                                            <span style={{
+                                                fontSize: '1.1rem', fontWeight: 700,
+                                                padding: '.5rem 1rem', borderRadius: 8,
+                                                background: merchant.ai_report.recommendation === 'APPROVE' || merchant.ai_report.recommendation === 'Approve' ? '#f0fdf4' : merchant.ai_report.recommendation === 'REJECT' || merchant.ai_report.recommendation === 'Reject' ? '#fef2f2' : '#fffbeb',
+                                                color: merchant.ai_report.recommendation === 'APPROVE' || merchant.ai_report.recommendation === 'Approve' ? '#166534' : merchant.ai_report.recommendation === 'REJECT' || merchant.ai_report.recommendation === 'Reject' ? '#991b1b' : '#854d0e',
+                                                border: `1px solid ${merchant.ai_report.recommendation === 'APPROVE' || merchant.ai_report.recommendation === 'Approve' ? '#bbf7d0' : merchant.ai_report.recommendation === 'REJECT' || merchant.ai_report.recommendation === 'Reject' ? '#fecaca' : '#fde68a'}`,
+                                            }}>
+                                                {merchant.ai_report.recommendation}
+                                            </span>
+                                            <span style={{ color: '#6b7280', fontSize: '.9rem' }}>
+                                                Confidence: <strong>{merchant.ai_report.confidence}</strong>
+                                            </span>
+                                        </div>
+                                        {merchant.ai_report.summary && (
+                                            <div style={{ 
+                                                padding: '1rem', 
+                                                background: '#f9fafb', 
+                                                borderRadius: 8, 
+                                                color: '#374151',
+                                                lineHeight: '1.6'
+                                            }}>
+                                                {merchant.ai_report.summary}
                                             </div>
-                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: getScoreColor(factor.score) }}>
-                                                {factor.score}
+                                        )}
+                                    </div>
+
+                                    {/* Risk Flags */}
+                                    {merchant.ai_report.flags && merchant.ai_report.flags.length > 0 && (
+                                        <div className="card">
+                                            <div className="data-section-title">⚠️ Risk Flags</div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+                                                {merchant.ai_report.flags.map((flag, idx) => (
+                                                    <div key={idx} style={{
+                                                        padding: '.75rem 1rem',
+                                                        background: flag.includes('No major risk') ? '#f0fdf4' : '#fef2f2',
+                                                        color: flag.includes('No major risk') ? '#166534' : '#991b1b',
+                                                        borderRadius: 6,
+                                                        border: `1px solid ${flag.includes('No major risk') ? '#bbf7d0' : '#fecaca'}`,
+                                                        fontSize: '.9rem'
+                                                    }}>
+                                                        {flag.includes('No major risk') ? '✓' : '⚠'} {flag}
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
+                                    )}
 
-                            {/* Document Verification */}
-                            <div className="card">
-                                <div className="data-section-title">📄 Document Verification</div>
-                                <div className="data-grid">
-                                    <DataItem label="Aadhaar Status" value={merchant.ai_report.document_verification?.aadhaar?.status} />
-                                    <DataItem label="Aadhaar Number" value={merchant.ai_report.document_verification?.aadhaar?.number} mono />
-                                    <DataItem label="PAN Status" value={merchant.ai_report.document_verification?.pan?.status} />
-                                    <DataItem label="PAN Number" value={merchant.ai_report.document_verification?.pan?.number} mono />
-                                    <DataItem label="Selfie Match" value={merchant.ai_report.document_verification?.selfie_match} />
-                                </div>
-                            </div>
+                                    {/* Risk Factors */}
+                                    <div className="card">
+                                        <div className="data-section-title">📊 Risk Factor Analysis</div>
+                                        <div style={{ display: 'grid', gap: '.75rem' }}>
+                                            {merchant.ai_report.risk_factors?.map((factor, idx) => (
+                                                <div key={idx} style={{
+                                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                    padding: '.75rem 1rem', background: '#f9fafb', borderRadius: 8,
+                                                    border: '1px solid #f3f4f6',
+                                                }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: '#1f2937' }}>{factor.factor}</div>
+                                                        <div style={{ 
+                                                            fontSize: '.8rem', 
+                                                            color: factor.status === 'Good' ? '#16a34a' : factor.status === 'Critical' ? '#dc2626' : '#ca8a04',
+                                                            fontWeight: 500
+                                                        }}>
+                                                            {factor.status}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: getScoreColor(factor.score) }}>
+                                                        {factor.score}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
 
-                            {/* Business Verification */}
-                            <div className="card">
-                                <div className="data-section-title">🏢 Business Verification</div>
-                                <div className="data-grid">
-                                    <DataItem label="GST Status" value={merchant.ai_report.business_verification?.gst_status} />
-                                    <DataItem label="PAN Status" value={merchant.ai_report.business_verification?.pan_status} />
-                                    <DataItem label="Address Verified" value={merchant.ai_report.business_verification?.address_verified ? 'Yes ✓' : 'No ✕'} />
-                                </div>
+                                    {/* Document Verification */}
+                                    <div className="card">
+                                        <div className="data-section-title">📄 Document Verification</div>
+                                        <div className="data-grid">
+                                            <DataItem 
+                                                label="Aadhaar Status" 
+                                                value={merchant.ai_report.document_verification?.aadhaar_card?.status || 
+                                                       merchant.ai_report.document_verification?.aadhaar?.status} 
+                                            />
+                                            <DataItem 
+                                                label="Aadhaar Confidence" 
+                                                value={merchant.ai_report.document_verification?.aadhaar_card?.confidence ? 
+                                                       `${merchant.ai_report.document_verification.aadhaar_card.confidence}%` : 
+                                                       'N/A'} 
+                                            />
+                                            <DataItem 
+                                                label="PAN Status" 
+                                                value={merchant.ai_report.document_verification?.pan_card?.status || 
+                                                       merchant.ai_report.document_verification?.pan?.status} 
+                                            />
+                                            <DataItem 
+                                                label="PAN Confidence" 
+                                                value={merchant.ai_report.document_verification?.pan_card?.confidence ? 
+                                                       `${merchant.ai_report.document_verification.pan_card.confidence}%` : 
+                                                       'N/A'} 
+                                            />
+                                            <DataItem 
+                                                label="Selfie Match" 
+                                                value={merchant.ai_report.document_verification?.selfie_match?.status || 
+                                                       merchant.ai_report.document_verification?.selfie_match} 
+                                            />
+                                            <DataItem 
+                                                label="Selfie Similarity" 
+                                                value={merchant.ai_report.document_verification?.selfie_match?.match_percentage ? 
+                                                       `${merchant.ai_report.document_verification.selfie_match.match_percentage}%` : 
+                                                       'N/A'} 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Business Verification */}
+                                    <div className="card">
+                                        <div className="data-section-title">🏢 Business Verification</div>
+                                        <div className="data-grid">
+                                            <DataItem label="GST Status" value={merchant.ai_report.business_verification?.gst_status} />
+                                            <DataItem label="PAN Status" value={merchant.ai_report.business_verification?.pan_status} />
+                                            <DataItem label="Address Verified" value={merchant.ai_report.business_verification?.address_verified ? 'Yes ✓' : 'No ✕'} />
+                                            {merchant.ai_report.business_verification?.business_age && (
+                                                <DataItem label="Business Age" value={merchant.ai_report.business_verification.business_age} />
+                                            )}
+                                            {merchant.ai_report.business_verification?.founder_info && (
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <DataItem label="Founder Info" value={merchant.ai_report.business_verification.founder_info} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Social Media (if available) */}
+                                    {merchant.ai_report.social_media && (
+                                        <div className="card">
+                                            <div className="data-section-title">📱 Social Media Presence</div>
+                                            <div style={{ marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '.5rem' }}>
+                                                    <span style={{ color: '#6b7280', fontSize: '.9rem' }}>Overall Score:</span>
+                                                    <span style={{ fontSize: '1.25rem', fontWeight: 700, color: getScoreColor(merchant.ai_report.social_media.overall_score) }}>
+                                                        {merchant.ai_report.social_media.overall_score}
+                                                    </span>
+                                                </div>
+                                                {merchant.ai_report.social_media.summary && (
+                                                    <div style={{ fontSize: '.9rem', color: '#6b7280', fontStyle: 'italic' }}>
+                                                        {merchant.ai_report.social_media.summary}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.75rem' }}>
+                                                {Object.entries(merchant.ai_report.social_media.platforms || {}).map(([platform, data]) => (
+                                                    <div key={platform} style={{
+                                                        padding: '.75rem',
+                                                        background: '#f9fafb',
+                                                        borderRadius: 8,
+                                                        border: '1px solid #e5e7eb'
+                                                    }}>
+                                                        <div style={{ fontWeight: 600, textTransform: 'capitalize', marginBottom: '.25rem' }}>
+                                                            {platform}
+                                                        </div>
+                                                        <div style={{ fontSize: '.85rem', color: '#6b7280' }}>
+                                                            {data.status} • {data.followers || 0} followers
+                                                        </div>
+                                                        <div style={{ fontSize: '.8rem', color: '#9ca3af' }}>
+                                                            Engagement: {data.engagement}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Financial Profile (if available) */}
+                                    {merchant.ai_report.financial_profile && (
+                                        <div className="card">
+                                            <div className="data-section-title">💰 Financial Profile</div>
+                                            <div style={{ marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                                    <span style={{ color: '#6b7280', fontSize: '.9rem' }}>Financial Score:</span>
+                                                    <span style={{ fontSize: '1.25rem', fontWeight: 700, color: getScoreColor(merchant.ai_report.financial_profile.score) }}>
+                                                        {merchant.ai_report.financial_profile.score}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="data-grid">
+                                                {merchant.ai_report.financial_profile.business_age && (
+                                                    <DataItem label="Business Age" value={merchant.ai_report.financial_profile.business_age} />
+                                                )}
+                                                {merchant.ai_report.financial_profile.estimated_revenue && (
+                                                    <DataItem label="Estimated Revenue" value={merchant.ai_report.financial_profile.estimated_revenue} />
+                                                )}
+                                                {merchant.ai_report.financial_profile.founder_credibility && (
+                                                    <DataItem label="Founder Credibility" value={merchant.ai_report.financial_profile.founder_credibility} />
+                                                )}
+                                                {merchant.ai_report.financial_profile.registration_status && (
+                                                    <DataItem label="Registration Status" value={merchant.ai_report.financial_profile.registration_status} />
+                                                )}
+                                                {merchant.ai_report.financial_profile.financial_stability && (
+                                                    <DataItem label="Financial Stability" value={merchant.ai_report.financial_profile.financial_stability} />
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {/* Admin Notes */}
+                            <div className="card" style={{ marginTop: '1.5rem' }}>
+                                <div className="data-section-title">📝 Admin Notes</div>
+                                <textarea
+                                    value={notes}
+                                    onChange={(e) => setNotes(e.target.value)}
+                                    placeholder="Add notes about this merchant..."
+                                    rows={4}
+                                    style={{
+                                        width: '100%', padding: '1rem',
+                                        border: '1.5px solid #e5e7eb', borderRadius: 8,
+                                        fontSize: '.95rem', resize: 'vertical',
+                                        fontFamily: 'inherit',
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = '#22c55e'}
+                                    onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                                />
+                                <button
+                                    className="btn btn-primary"
+                                    style={{ marginTop: '.75rem' }}
+                                    onClick={handleSaveNotes}
+                                    disabled={saving}
+                                >
+                                    {saving ? <span className="spinner" /> : '💾 Save Notes'}
+                                </button>
                             </div>
-                        </div>
-                    ) : (
-                        <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
-                            <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>🤖</div>
-                            <p style={{ color: '#6b7280' }}>AI report data not available</p>
                         </div>
                     )
                 )}
-
-                {/* Admin Notes */}
-                <div className="card" style={{ marginTop: '1.5rem' }}>
-                    <div className="data-section-title">📝 Admin Notes</div>
-                    <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add notes about this merchant..."
-                        rows={4}
-                        style={{
-                            width: '100%', padding: '1rem',
-                            border: '1.5px solid #e5e7eb', borderRadius: 8,
-                            fontSize: '.95rem', resize: 'vertical',
-                            fontFamily: 'inherit',
-                        }}
-                        onFocus={(e) => e.target.style.borderColor = '#22c55e'}
-                        onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
-                    />
-                    <button
-                        className="btn btn-primary"
-                        style={{ marginTop: '.75rem' }}
-                        onClick={handleSaveNotes}
-                        disabled={saving}
-                    >
-                        {saving ? <span className="spinner" /> : '💾 Save Notes'}
-                    </button>
-                </div>
             </div>
         </div>
     );

@@ -74,4 +74,7 @@ export const updateMerchantStatus = (userId, status, notes) =>
 export const saveAdminNotes = (userId, notes) =>
     api.post('/admin/save-notes', { user_id: userId, notes });
 
+export const generateAiReport = (userId) =>
+    api.post(`/admin/ai-report/${userId}`);
+
 export default api;

@@ -31,5 +31,16 @@ class Settings:
     AWS_REGION: str = os.environ.get("AWS_REGION", "us-east-1")
     AWS_S3_BUCKET: str = os.environ.get("AWS_S3_BUCKET", "")
 
+    # AWS Bedrock Configuration
+    AWS_BEDROCK_MODEL_ID: str = os.environ.get(
+        "AWS_BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
+    AWS_BEDROCK_REGION: str = os.environ.get("AWS_BEDROCK_REGION", "us-east-1")
+    # Bedrock API Key (ABSK... format) — takes priority over IAM if set
+    AWS_BEDROCK_API_KEY: str = os.environ.get("AWS_BEDROCK_API_KEY", "")
+
+    # AWS Step Functions — orchestration
+    AWS_STEP_FUNCTION_ARN: str = os.environ.get("AWS_STEP_FUNCTION_ARN", "")
+    AWS_STEP_FUNCTION_REGION: str = os.environ.get("AWS_STEP_FUNCTION_REGION", "us-east-1")
 
 settings = Settings()
