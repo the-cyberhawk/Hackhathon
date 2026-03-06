@@ -13,6 +13,9 @@ load_dotenv(ROOT_DIR / ".env")
 class Settings:
     MONGO_URL: str = os.environ["MONGO_URL"]
     DB_NAME: str = os.environ["DB_NAME"]
+    
+    # SSL/TLS for DocumentDB
+    MONGO_TLS_CA_FILE: str = os.environ.get("MONGO_TLS_CA_FILE", "")
 
     JWT_SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "change-me-in-production")
     JWT_ALGORITHM: str = "HS256"
@@ -30,6 +33,18 @@ class Settings:
     AWS_SECRET_ACCESS_KEY: str = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
     AWS_REGION: str = os.environ.get("AWS_REGION", "us-east-1")
     AWS_S3_BUCKET: str = os.environ.get("AWS_S3_BUCKET", "")
+
+    # AWS Bedrock — AI Risk Engine
+    AWS_BEDROCK_MODEL_ID: str = os.environ.get(
+        "AWS_BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
+    AWS_BEDROCK_REGION: str = os.environ.get("AWS_BEDROCK_REGION", "us-east-1")
+    # Bedrock API Key (ABSK... format) — takes priority over IAM if set
+    AWS_BEDROCK_API_KEY: str = os.environ.get("AWS_BEDROCK_API_KEY", "")
+
+    # AWS Step Functions — orchestration
+    AWS_STEP_FUNCTION_ARN: str = os.environ.get("AWS_STEP_FUNCTION_ARN", "")
+    AWS_STEP_FUNCTION_REGION: str = os.environ.get("AWS_STEP_FUNCTION_REGION", "us-east-1")
 
 
 settings = Settings()

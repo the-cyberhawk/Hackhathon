@@ -353,3 +353,392 @@ def _generate_ai_report(kyc: dict, user: dict) -> dict:
             "address_verified": bool(kyc.get("business_details")),
         },
     }
+
+
+# ── AI Report via Bedrock ─────────────────────────────────────────────────
+
+@router.post("/ai-report/{user_id}")
+async def generate_ai_report(user_id: str):
+    """
+    Generate an AI risk report for a merchant using Amazon Bedrock.
+    Sends KYC data to Claude with a simple prompt and returns structured JSON.
+    Falls back to deterministic mock if Bedrock is not configured/reachable.
+    """
+    logger.info(f"[AI REPORT] Generating for user_id={user_id}")
+
+    db = get_database()
+    kyc = await db.kyc_data.find_one({"user_id": user_id}, {"_id": 0})
+    if not kyc:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+
+    # Build a concise merchant summary for the prompt
+    bd = kyc.get("basic_details") or {}
+    biz = kyc.get("business_details") or {}
+    bank = kyc.get("bank_details") or {}
+    identity = kyc.get("identity_details") or {}
+
+    merchant_summary = f"""
+Merchant KYC Summary:
+- Name: {bd.get('full_name', 'N/A')}
+- Business: {biz.get('business_name', 'N/A')} ({biz.get('business_type', 'N/A')})
+- GST: {biz.get('gst_number', 'Not provided')}
+- PAN: {identity.get('pan_number', 'Not provided')}
+- Aadhaar: {'Provided' if identity.get('aadhaar_number') else 'Not provided'}
+- Bank: {bank.get('bank_name', 'N/A')}, IFSC: {bank.get('ifsc_code', 'N/A')}
+- Documents uploaded: Aadhaar={'Yes' if kyc.get('aadhaar_front') else 'No'}, PAN={'Yes' if kyc.get('pan_card') else 'No'}, Cheque={'Yes' if kyc.get('cancelled_cheque') else 'No'}, Selfie={'Yes' if kyc.get('selfie') else 'No'}
+- City: {biz.get('business_city', 'N/A')}, State: {biz.get('business_state', 'N/A')}
+""".strip()
+
+    # ── AWS Rekognition Face Comparison ────────────────────────────────────
+    # Compare selfie against Aadhaar and PAN card using the same IAM credentials
+    from app.config import settings as _cfg
+    from urllib.parse import urlparse
+
+    def _s3_obj_from_url(url: str) -> dict | None:
+        """Extract {'Bucket': ..., 'Name': ...} from an S3 public URL."""
+        if not url:
+            return None
+        try:
+            parsed = urlparse(url)
+            # https://<bucket>.s3.<region>.amazonaws.com/<key>
+            bucket = parsed.netloc.split(".")[0]
+            key = parsed.path.lstrip("/")
+            return {"Bucket": bucket, "Name": key}
+        except Exception:
+            return None
+
+    def _rekognition_compare(rek_client, source_url: str, target_url: str) -> dict:
+        """
+        Compare faces between source (ID doc) and target (selfie).
+        Returns {'similarity': float|None, 'status': str}
+        """
+        src = _s3_obj_from_url(source_url)
+        tgt = _s3_obj_from_url(target_url)
+        if not src or not tgt:
+            return {"similarity": None, "status": "image_unavailable"}
+        try:
+            resp = rek_client.compare_faces(
+                SourceImage={"S3Object": src},
+                TargetImage={"S3Object": tgt},
+                SimilarityThreshold=70,
+            )
+            matches = resp.get("FaceMatches", [])
+            if matches:
+                sim = round(matches[0]["Similarity"], 1)
+                return {"similarity": sim, "status": "match" if sim >= 80 else "low_match"}
+            return {"similarity": 0.0, "status": "no_match"}
+        except Exception as rek_err:
+            err_msg = str(rek_err)
+            if "InvalidParameterException" in err_msg or "no faces" in err_msg.lower():
+                return {"similarity": None, "status": "no_face_detected"}
+            if "AccessDenied" in err_msg or "not authorized" in err_msg:
+                return {"similarity": None, "status": "access_denied"}
+            return {"similarity": None, "status": f"error: {type(rek_err).__name__}"}
+
+    face_match = {
+        "selfie_vs_aadhaar": {"similarity": None, "status": "skipped"},
+        "selfie_vs_pan": {"similarity": None, "status": "skipped"},
+    }
+
+    try:
+        import boto3 as _boto3
+        rek = _boto3.client(
+            "rekognition",
+            region_name="us-east-1",
+            aws_access_key_id=_cfg.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=_cfg.AWS_SECRET_ACCESS_KEY,
+        )
+        selfie_url = kyc.get("selfie")
+        if selfie_url:
+            if kyc.get("aadhaar_front"):
+                face_match["selfie_vs_aadhaar"] = _rekognition_compare(
+                    rek, kyc["aadhaar_front"], selfie_url
+                )
+            if kyc.get("pan_card"):
+                face_match["selfie_vs_pan"] = _rekognition_compare(
+                    rek, kyc["pan_card"], selfie_url
+                )
+        logger.info(
+            f"[AI REPORT] Rekognition — aadhaar: {face_match['selfie_vs_aadhaar']['status']} "
+            f"| pan: {face_match['selfie_vs_pan']['status']}"
+        )
+    except Exception as rek_err:
+        logger.warning(f"[AI REPORT] Rekognition setup failed: {rek_err}")
+
+    # Summarise face match for the Bedrock prompt
+    def _face_summary(result: dict) -> str:
+        s = result["status"]
+        sim = result.get("similarity")
+        if s == "match":       return f"MATCH ({sim}% similarity)"
+        if s == "low_match":   return f"LOW MATCH ({sim}% similarity — below 80% threshold)"
+        if s == "no_match":    return "NO MATCH (faces detected but do not match)"
+        if s == "no_face_detected": return "NO FACE detected in image"
+        if s == "image_unavailable": return "Image not uploaded"
+        return s
+
+    face_match_context = (
+        f"- Selfie vs Aadhaar: {_face_summary(face_match['selfie_vs_aadhaar'])}\n"
+        f"- Selfie vs PAN: {_face_summary(face_match['selfie_vs_pan'])}"
+    )
+
+    # Pull the selfie-vs-aadhaar similarity for the prompt and document section
+    rek_selfie_sim = face_match.get("selfie_vs_aadhaar", {}).get("similarity")
+    rek_selfie_status = face_match.get("selfie_vs_aadhaar", {}).get("status", "skipped")
+
+    prompt = f"""You are a payment gateway risk analyst. Analyze this merchant's KYC data and return a comprehensive JSON risk report.
+
+{merchant_summary}
+
+AWS Rekognition Face Verification Results:
+{face_match_context}
+
+Return ONLY valid JSON with this exact structure (no markdown, no explanation):
+{{
+  "risk_score": <0-100, higher = more risk>,
+  "risk_level": "<Low|Medium|High>",
+  "recommendation": "<APPROVE|MANUAL REVIEW|REJECT>",
+  "confidence": "<High|Medium|Low>",
+  "summary": "<2-3 sentence plain English assessment>",
+  "flags": [<list of specific risk flag strings, or empty list>],
+  "risk_factors": [
+    {{"factor": "Document Authenticity", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Identity Match", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Business Legitimacy", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Website Trust", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Financial Profile", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Social Media Presence", "score": <0-100>, "status": "<Good|Warning|Critical>"}}
+  ],
+  "document_verification": {{
+    "aadhaar_card": {{"status": "<Valid|Invalid|Not Uploaded>", "confidence": <0-100>}},
+    "pan_card": {{"status": "<Valid|Invalid|Not Uploaded>", "confidence": <0-100>}},
+    "selfie_match": {{"match_percentage": {round(rek_selfie_sim, 1) if rek_selfie_sim else "N/A"}, "status": "<Strong Match|Low Match|No Match|No Face Detected|Not Uploaded>"}}
+  }},
+  "business_verification": {{
+    "gst_status": "<Active|Not Provided|Invalid>",
+    "pan_status": "<Valid|Not Provided>",
+    "address_verified": <true|false>,
+    "business_age": "<e.g. 3 years 2 months or Unknown>",
+    "founder_info": "<one line about founder credibility based on available data>"
+  }},
+  "social_media": {{
+    "overall_score": <0-100>,
+    "platforms": {{
+      "linkedin": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
+      "facebook": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
+      "instagram": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
+      "twitter": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}}
+    }},
+    "summary": "<one sentence summary of social media credibility>"
+  }},
+  "financial_profile": {{
+    "score": <0-100>,
+    "business_age": "<e.g. 3 years 2 months>",
+    "estimated_revenue": "<e.g. ₹5-10 Cr annually>",
+    "founder_credibility": "<High|Medium|Low> - <brief reason>",
+    "registration_status": "<status string>",
+    "financial_stability": "<brief assessment>"
+  }}
+}}"""
+
+    bedrock_used = False
+    report_data = None
+
+    # ── Try Bedrock ────────────────────────────────────────────────────────
+    try:
+        from app.config import settings
+        import json as _json
+
+        MODEL_ID = settings.AWS_BEDROCK_MODEL_ID
+        is_llama = "llama" in MODEL_ID.lower()
+
+        # Payload structure depends on model family
+        if is_llama:
+            payload = {
+                "prompt": f"<s>[INST] {prompt} [/INST]",
+                "max_gen_len": 2048,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        else:
+            # Anthropic style (default)
+            payload = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1000,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": prompt}],
+                    }
+                ],
+            }
+
+        if settings.AWS_ACCESS_KEY_ID:
+            # ── Primary: IAM credential (boto3) ─────────────────────────────
+            import boto3
+
+            client = boto3.client(
+                "bedrock-runtime",
+                region_name=settings.AWS_BEDROCK_REGION,
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            )
+            response = client.invoke_model(
+                modelId=MODEL_ID,
+                body=_json.dumps(payload),
+            )
+            resp_body = _json.loads(response["body"].read())
+            raw_text = resp_body.get("generation") if is_llama else resp_body["content"][0]["text"]
+            logger.info(f"[AI REPORT] Bedrock IAM call success for {user_id} using {MODEL_ID}")
+
+        elif settings.AWS_BEDROCK_API_KEY:
+            # ── Fallback: Bedrock API Key (Bearer token) ─────────────────────
+            import requests as _req
+
+            endpoint = (
+                f"https://bedrock-runtime.{settings.AWS_BEDROCK_REGION}.amazonaws.com"
+                f"/model/{MODEL_ID}/invoke"
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.AWS_BEDROCK_API_KEY}",
+            }
+            resp = _req.post(endpoint, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            resp_json = resp.json()
+            raw_text = resp_json.get("generation") if is_llama else resp_json["content"][0]["text"]
+            logger.info(f"[AI REPORT] Bedrock API key call success for {user_id} using {MODEL_ID}")
+
+        else:
+            raise ValueError("No Bedrock credentials configured")
+
+        # Strip markdown code fences Claude sometimes adds
+        text = raw_text.strip()
+        if "```" in text:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            text = text[start:end]
+
+        report_data = _json.loads(text)
+        bedrock_used = True
+        logger.info(
+            f"[AI REPORT] score={report_data.get('risk_score')} "
+            f"level={report_data.get('risk_level')} rec={report_data.get('recommendation')}"
+        )
+
+    except Exception as e:
+        logger.warning(f"[AI REPORT] Bedrock call failed ({type(e).__name__}): {e} — using deterministic mock")
+
+
+    # ── Deterministic mock (same rich schema as the Bedrock response) ─────────
+    if not report_data:
+        score = _generate_ai_score(kyc)
+        risk_level = _calculate_risk_level(kyc)
+        has_docs = all([kyc.get("aadhaar_front"), kyc.get("pan_card")])
+        has_selfie = bool(kyc.get("selfie"))
+        has_bank = bool(bank.get("ifsc_code") and bank.get("bank_name"))
+        has_gst = bool(biz.get("gst_number"))
+        has_pan = bool(identity.get("pan_number"))
+        has_aadhaar = bool(identity.get("aadhaar_number"))
+
+        flags = []
+        if not has_docs:  flags.append("Missing mandatory KYC documents")
+        if not has_gst:   flags.append("GST number not provided")
+        if not has_bank:  flags.append("Incomplete bank details")
+        if not has_selfie: flags.append("Selfie not uploaded – face verification skipped")
+        if score < 50:    flags.append("Low overall risk score – manual review required")
+
+        recommendation = "APPROVE" if score >= 70 else ("MANUAL REVIEW" if score >= 45 else "REJECT")
+
+        # Document score based on what's uploaded + Rekognition result
+        id_score = 90 if has_docs else 40
+        selfie_score = 0
+        selfie_status_label = "Not Uploaded"
+        if rek_selfie_sim:
+            selfie_score = rek_selfie_sim
+            selfie_status_label = "Strong Match" if rek_selfie_sim >= 80 else "Low Match"
+        elif rek_selfie_status == "no_face_detected":
+            selfie_status_label = "No Face Detected"
+        elif rek_selfie_status == "no_match":
+            selfie_status_label = "No Match"
+            flags.append("Selfie does not match Aadhaar – identity mismatch risk")
+
+        biz_name = biz.get("business_name", "the business")
+        full_name = bd.get("full_name", "The applicant")
+
+        report_data = {
+            "risk_score": score,
+            "risk_level": risk_level,
+            "recommendation": recommendation,
+            "confidence": "High" if has_docs and has_gst else "Medium",
+            "summary": (
+                f"{full_name} operates {biz_name} "
+                f"({'GST registered' if has_gst else 'no GST number provided'}) with a computed risk score of {score}/100. "
+                f"{'All key KYC documents are present.' if has_docs else 'Some mandatory documents are missing.'} "
+                f"Recommendation: {recommendation}."
+            ),
+            "flags": flags if flags else ["No major risk flags detected"],
+            "risk_factors": [
+                {"factor": "Document Authenticity", "score": 90 if has_docs else 40, "status": "Good" if has_docs else "Critical"},
+                {"factor": "Identity Match",         "score": int(rek_selfie_sim or 0) if rek_selfie_sim else (70 if has_aadhaar else 30), "status": "Good" if (rek_selfie_sim or 0) >= 80 else ("Warning" if has_aadhaar else "Critical")},
+                {"factor": "Business Legitimacy",    "score": 80 if has_gst else 50, "status": "Good" if has_gst else "Warning"},
+                {"factor": "Website Trust",          "score": 75, "status": "Good"},
+                {"factor": "Financial Profile",      "score": 80 if has_bank else 50, "status": "Good" if has_bank else "Warning"},
+                {"factor": "Social Media Presence",  "score": 70, "status": "Good"},
+            ],
+            "document_verification": {
+                "aadhaar_card": {
+                    "status": "Valid" if kyc.get("aadhaar_front") else "Not Uploaded",
+                    "confidence": 96 if kyc.get("aadhaar_front") else 0,
+                },
+                "pan_card": {
+                    "status": "Valid" if kyc.get("pan_card") else "Not Uploaded",
+                    "confidence": 94 if kyc.get("pan_card") else 0,
+                },
+                "selfie_match": {
+                    "match_percentage": round(rek_selfie_sim, 1) if rek_selfie_sim else "N/A",
+                    "status": selfie_status_label,
+                },
+            },
+            "business_verification": {
+                "gst_status": "Active" if has_gst else "Not Provided",
+                "pan_status": "Valid" if has_pan else "Not Provided",
+                "address_verified": bool(biz.get("business_city") or biz.get("business_state")),
+                "business_age": "Unknown",
+                "founder_info": f"{full_name} – KYC verified applicant",
+            },
+            "social_media": {
+                "overall_score": 70,
+                "platforms": {
+                    "linkedin":  {"status": "Active", "followers": 1200, "engagement": "Medium"},
+                    "facebook":  {"status": "Active", "followers": 800,  "engagement": "Medium"},
+                    "instagram": {"status": "Active", "followers": 500,  "engagement": "Low"},
+                    "twitter":   {"status": "Not Found", "followers": 0, "engagement": "Low"},
+                },
+                "summary": "Moderate social media presence; LinkedIn profile adds credibility.",
+            },
+            "financial_profile": {
+                "score": 75 if has_bank else 50,
+                "business_age": "Unknown",
+                "estimated_revenue": "To be assessed",
+                "founder_credibility": f"{'High' if has_gst else 'Medium'} – {'GST registered business owner' if has_gst else 'No GST, limited verification'}",
+                "registration_status": "Registered" if has_gst or has_pan else "Partially registered",
+                "financial_stability": "Stable" if has_bank else "Pending bank verification",
+            },
+        }
+
+    # Also update merchant's ai_score and risk_level in DB
+    await db.kyc_data.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "ai_score": report_data["risk_score"],
+            "risk_level": report_data["risk_level"],
+        }},
+    )
+
+    return {
+        "user_id": user_id,
+        "source": "bedrock" if bedrock_used else "mock",
+        "model": settings.AWS_BEDROCK_MODEL_ID if bedrock_used else "deterministic-mock",
+        "face_match": face_match,
+        **report_data,
+    }
