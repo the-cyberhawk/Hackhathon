@@ -64,4 +64,5 @@ class KYCDataResponse(BaseModel):
     pan_card: Optional[str] = None
     cancelled_cheque: Optional[str] = None
     selfie: Optional[str] = None
+    documents: Optional[dict] = None
     updated_at: str

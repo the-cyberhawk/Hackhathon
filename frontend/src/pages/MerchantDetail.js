@@ -55,6 +55,7 @@ export default function MerchantDetail({ userId, onBack }) {
 
     const getStatusBadge = (status) => {
         const badges = {
+            not_started: 'badge-draft',
             pending: 'badge-pending',
             approved: 'badge-approved',
             rejected: 'badge-rejected',
@@ -65,16 +66,18 @@ export default function MerchantDetail({ userId, onBack }) {
     };
 
     const getScoreColor = (score) => {
+        if (score === 0) return '#6b7280';
         if (score >= 75) return '#16a34a';
         if (score >= 50) return '#ca8a04';
         return '#dc2626';
     };
 
     const getRiskBadge = (risk) => {
+        if (risk === 'N/A') return { bg: '#f3f4f6', color: '#6b7280' };
         const colors = {
-            Low: { bg: '#dcfce7', color: '#166534' },
-            Medium: { bg: '#fef9c3', color: '#854d0e' },
-            High: { bg: '#fee2e2', color: '#991b1b' },
+            Low: { bg: '#f0fdf4', color: '#166534' },
+            Medium: { bg: '#fffbeb', color: '#854d0e' },
+            High: { bg: '#fef2f2', color: '#991b1b' },
         };
         return colors[risk] || colors.Medium;
     };
@@ -109,7 +112,7 @@ export default function MerchantDetail({ userId, onBack }) {
     return (
         <div className="app-wrapper">
             <nav className="navbar">
-                <span className="navbar-brand">🛡️ Admin Portal</span>
+                <span className="navbar-brand">Admin Portal</span>
                 <div className="navbar-actions">
                     <button className="btn btn-outline btn-sm" onClick={onBack}>
                         ← Back to Dashboard
@@ -118,79 +121,87 @@ export default function MerchantDetail({ userId, onBack }) {
             </nav>
 
             <div className="page-container fade-in">
-                {/* Header */}
-                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                {/* Merchant Header */}
+                <div className="card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid #22c55e' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: '1rem' }}>
                         <div>
-                            <h1 style={{ marginBottom: '.5rem' }}>
+                            <h1 style={{ marginBottom: '.5rem', fontSize: '1.5rem', fontWeight: 700, color: '#1f2937' }}>
                                 {merchant.basic_details?.full_name || merchant.email}
                             </h1>
-                            <div style={{ fontSize: '.9rem', color: 'var(--text-dim)' }}>
-                                {merchant.email} • {merchant.phone}
+                            <div style={{ fontSize: '.9rem', color: '#6b7280' }}>
+                                📧 {merchant.email} &nbsp;•&nbsp; 📱 {merchant.phone}
                             </div>
                             {merchant.business_details?.business_name && (
-                                <div style={{ marginTop: '.5rem', fontSize: '.9rem' }}>
+                                <div style={{ marginTop: '.5rem', fontSize: '.9rem', color: '#374151' }}>
                                     🏢 {merchant.business_details.business_name}
                                 </div>
                             )}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '.5rem' }}>
                             <span className={`badge ${getStatusBadge(merchant.kyc_status)}`}>
-                                {merchant.kyc_status?.replace('_', ' ') || 'Draft'}
+                                {merchant.kyc_status?.replace('_', ' ').toUpperCase() || 'DRAFT'}
                             </span>
-                            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-                                <span style={{ fontSize: '1.5rem', fontWeight: '700', color: getScoreColor(merchant.ai_score) }}>
-                                    {merchant.ai_score}
-                                </span>
-                                <span style={{ padding: '.25rem .5rem', borderRadius: '4px', fontSize: '.75rem', fontWeight: '500', ...getRiskBadge(merchant.risk_level) }}>
-                                    {merchant.risk_level} Risk
-                                </span>
-                            </div>
+                            {merchant.kyc_status !== 'not_started' && (
+                                <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: 700, color: getScoreColor(merchant.ai_score) }}>
+                                        {merchant.ai_score}
+                                    </span>
+                                    <span style={{ padding: '.2rem .5rem', borderRadius: 4, fontSize: '.75rem', fontWeight: 600, background: getRiskBadge(merchant.risk_level).bg, color: getRiskBadge(merchant.risk_level).color }}>
+                                        {merchant.risk_level} {merchant.risk_level !== 'N/A' ? 'Risk' : ''}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
 
-                {/* Action Buttons */}
+                {/* Quick Actions */}
                 <div className="card" style={{ marginBottom: '1.5rem' }}>
-                    <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>Quick Actions</h3>
+                    <div className="data-section-title">⚡ Quick Actions</div>
                     {message && (
-                        <div className={`alert ${message.includes('failed') ? 'alert-danger' : 'alert-info'}`} style={{ marginBottom: '1rem' }}>
+                        <div className={`alert ${message.includes('failed') ? 'alert-danger' : 'alert-success'}`}>
                             {message}
                         </div>
                     )}
-                    <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap' }}>
-                        <button
-                            className="btn"
-                            style={{ background: '#16a34a', color: 'white' }}
-                            onClick={() => handleStatusUpdate('approved')}
-                            disabled={saving}
-                        >
-                            ✓ Approve
-                        </button>
-                        <button
-                            className="btn"
-                            style={{ background: '#dc2626', color: 'white' }}
-                            onClick={() => handleStatusUpdate('rejected')}
-                            disabled={saving}
-                        >
-                            ✕ Reject
-                        </button>
-                        <button
-                            className="btn btn-outline"
-                            onClick={() => handleStatusUpdate('manual_review')}
-                            disabled={saving}
-                        >
-                            🔍 Manual Review
-                        </button>
-                    </div>
+                    {merchant.kyc_status === 'not_started' ? (
+                        <div style={{ padding: '1.25rem', background: '#f9fafb', borderRadius: 8, textAlign: 'center' }}>
+                            <p style={{ color: '#6b7280' }}>User has not started KYC yet</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap' }}>
+                            <button
+                                className="btn"
+                                style={{ background: '#16a34a', color: 'white' }}
+                                onClick={() => handleStatusUpdate('approved')}
+                                disabled={saving}
+                            >
+                                ✓ Approve
+                            </button>
+                            <button
+                                className="btn"
+                                style={{ background: '#dc2626', color: 'white' }}
+                                onClick={() => handleStatusUpdate('rejected')}
+                                disabled={saving}
+                            >
+                                ✕ Reject
+                            </button>
+                            <button
+                                className="btn btn-outline"
+                                onClick={() => handleStatusUpdate('manual_review')}
+                                disabled={saving}
+                            >
+                                🔍 Manual Review
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Tab Navigation */}
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                <div className="tab-nav">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
-                            className={`btn ${activeTab === tab.id ? 'btn-primary' : 'btn-outline'} btn-sm`}
+                            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab.id)}
                         >
                             {tab.label}
@@ -198,236 +209,226 @@ export default function MerchantDetail({ userId, onBack }) {
                     ))}
                 </div>
 
-                {/* Tab Content */}
+                {/* Tab Content — Overview */}
                 {activeTab === 'overview' && (
-                    <div style={{ display: 'grid', gap: '1.5rem' }}>
+                    <div style={{ display: 'grid', gap: '1.25rem' }}>
                         {/* Basic Details */}
                         <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>👤 Basic Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Full Name</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.basic_details?.full_name || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Date of Birth</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.basic_details?.date_of_birth || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Address</label>
-                                    <div style={{ fontWeight: '500' }}>
-                                        {merchant.basic_details?.street}, {merchant.basic_details?.city}, {merchant.basic_details?.state} - {merchant.basic_details?.pincode}
-                                    </div>
-                                </div>
+                            <div className="data-section-title">👤 Basic Details</div>
+                            <div className="data-grid">
+                                <DataItem label="Full Name" value={merchant.basic_details?.full_name} />
+                                <DataItem label="Date of Birth" value={merchant.basic_details?.date_of_birth} />
+                                <DataItem label="Address" value={`${merchant.basic_details?.street || ''}, ${merchant.basic_details?.city || ''}, ${merchant.basic_details?.state || ''} - ${merchant.basic_details?.pincode || ''}`} />
                             </div>
                         </div>
 
                         {/* Identity Details */}
                         <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>🪪 Identity Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Aadhaar Number</label>
-                                    <div style={{ fontWeight: '500', fontFamily: 'monospace' }}>{merchant.identity_details?.aadhaar_number || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>PAN Number</label>
-                                    <div style={{ fontWeight: '500', fontFamily: 'monospace' }}>{merchant.identity_details?.pan_number?.toUpperCase() || 'N/A'}</div>
-                                </div>
+                            <div className="data-section-title">🪪 Identity Details</div>
+                            <div className="data-grid">
+                                <DataItem label="Aadhaar Number" value={merchant.identity_details?.aadhaar_number} mono />
+                                <DataItem label="PAN Number" value={merchant.identity_details?.pan_number?.toUpperCase()} mono />
                             </div>
                         </div>
 
                         {/* Business Details */}
                         <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>🏢 Business Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Business Name</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.business_details?.business_name || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Business Type</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.business_details?.business_type || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>GST Number</label>
-                                    <div style={{ fontWeight: '500', fontFamily: 'monospace' }}>{merchant.business_details?.gst_number || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Business Address</label>
-                                    <div style={{ fontWeight: '500' }}>
-                                        {merchant.business_details?.business_street}, {merchant.business_details?.business_city}, {merchant.business_details?.business_state} - {merchant.business_details?.business_pincode}
-                                    </div>
-                                </div>
+                            <div className="data-section-title">🏢 Business Details</div>
+                            <div className="data-grid">
+                                <DataItem label="Business Name" value={merchant.business_details?.business_name} />
+                                <DataItem label="Business Type" value={merchant.business_details?.business_type} />
+                                <DataItem label="GST Number" value={merchant.business_details?.gst_number} mono />
+                                <DataItem label="Business Address" value={`${merchant.business_details?.business_street || ''}, ${merchant.business_details?.business_city || ''}, ${merchant.business_details?.business_state || ''} - ${merchant.business_details?.business_pincode || ''}`} />
                             </div>
                         </div>
 
                         {/* Bank Details */}
                         <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>🏦 Bank Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Account Holder</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.bank_details?.account_holder_name || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Bank Name</label>
-                                    <div style={{ fontWeight: '500' }}>{merchant.bank_details?.bank_name || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Account Number</label>
-                                    <div style={{ fontWeight: '500', fontFamily: 'monospace' }}>{merchant.bank_details?.account_number || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>IFSC Code</label>
-                                    <div style={{ fontWeight: '500', fontFamily: 'monospace' }}>{merchant.bank_details?.ifsc_code || 'N/A'}</div>
-                                </div>
+                            <div className="data-section-title">🏦 Bank Details</div>
+                            <div className="data-grid">
+                                <DataItem label="Account Holder" value={merchant.bank_details?.account_holder_name} />
+                                <DataItem label="Bank Name" value={merchant.bank_details?.bank_name} />
+                                <DataItem label="Account Number" value={merchant.bank_details?.account_number} mono />
+                                <DataItem label="IFSC Code" value={merchant.bank_details?.ifsc_code} mono />
                             </div>
                         </div>
                     </div>
                 )}
 
+                {/* Tab Content — Documents */}
                 {activeTab === 'documents' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-                        {[
-                            { label: 'Aadhaar Front', key: 'aadhaar_front' },
-                            { label: 'Aadhaar Back', key: 'aadhaar_back' },
-                            { label: 'PAN Card', key: 'pan_card' },
-                            { label: 'Selfie', key: 'selfie' },
-                            { label: 'Cancelled Cheque', key: 'cancelled_cheque' },
-                        ].map((doc) => (
-                            <div key={doc.key} className="card">
-                                <h4 style={{ marginBottom: '1rem' }}>{doc.label}</h4>
-                                {merchant.documents?.[doc.key] ? (
-                                    <div>
-                                        <img
-                                            src={merchant.documents[doc.key]}
-                                            alt={doc.label}
-                                            style={{ width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }}
-                                            onError={(e) => {
-                                                e.target.style.display = 'none';
-                                                e.target.nextSibling.style.display = 'block';
-                                            }}
-                                        />
-                                        <div style={{ display: 'none', padding: '2rem', background: '#f5f5f5', borderRadius: '8px', textAlign: 'center' }}>
-                                            <p style={{ color: 'var(--text-dim)' }}>Unable to load image</p>
-                                            <a href={merchant.documents[doc.key]} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
-                                                Open File
-                                            </a>
+                    <div className="card">
+                        <div className="data-section-title">📄 Uploaded Documents</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                            {[
+                                { label: 'Aadhaar Front', key: 'aadhaar_front' },
+                                { label: 'Aadhaar Back', key: 'aadhaar_back' },
+                                { label: 'PAN Card', key: 'pan_card' },
+                                { label: 'Selfie', key: 'selfie' },
+                                { label: 'Cancelled Cheque', key: 'cancelled_cheque' },
+                            ].map((doc) => (
+                                <div key={doc.key} style={{
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: 10,
+                                    overflow: 'hidden',
+                                    background: '#fff',
+                                }}>
+                                    <div style={{
+                                        padding: '.6rem .85rem',
+                                        background: '#f9fafb',
+                                        borderBottom: '1px solid #e5e7eb',
+                                        fontSize: '.85rem',
+                                        fontWeight: 600,
+                                        color: '#374151',
+                                    }}>
+                                        📎 {doc.label}
+                                    </div>
+                                    {merchant.documents?.[doc.key] ? (
+                                        <div style={{ padding: '.75rem' }}>
+                                            <img
+                                                src={merchant.documents[doc.key]}
+                                                alt={doc.label}
+                                                style={{ width: '100%', maxHeight: 250, objectFit: 'contain', borderRadius: 6, border: '1px solid #e5e7eb' }}
+                                                onError={(e) => {
+                                                    e.target.style.display = 'none';
+                                                    e.target.nextSibling.style.display = 'flex';
+                                                }}
+                                            />
+                                            <div style={{ display: 'none', padding: '2rem', textAlign: 'center', flexDirection: 'column', alignItems: 'center', gap: '.5rem' }}>
+                                                <p style={{ color: '#6b7280', fontSize: '.9rem' }}>Unable to load preview</p>
+                                                <a href={merchant.documents[doc.key]} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
+                                                    Open File ↗
+                                                </a>
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div style={{ padding: '3rem', background: '#f5f5f5', borderRadius: '8px', textAlign: 'center' }}>
-                                        <p style={{ color: 'var(--text-dim)' }}>Not uploaded</p>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                                    ) : (
+                                        <div style={{ padding: '2.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '.9rem' }}>
+                                            Not uploaded
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
-                {activeTab === 'ai_report' && merchant.ai_report && (
-                    <div style={{ display: 'grid', gap: '1.5rem' }}>
-                        {/* AI Recommendation */}
-                        <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>🤖 AI Recommendation</h3>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                <span
-                                    style={{
-                                        fontSize: '1.25rem',
-                                        fontWeight: '700',
-                                        padding: '.5rem 1rem',
-                                        borderRadius: '8px',
-                                        background: merchant.ai_report.recommendation === 'Approve' ? '#dcfce7' : merchant.ai_report.recommendation === 'Reject' ? '#fee2e2' : '#fef9c3',
+                {/* Tab Content — AI Report */}
+                {activeTab === 'ai_report' && (
+                    merchant.kyc_status === 'not_started' ? (
+                        <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
+                            <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>🤖</div>
+                            <p style={{ color: '#6b7280' }}>No AI report available — KYC not started</p>
+                        </div>
+                    ) : merchant.ai_report ? (
+                        <div style={{ display: 'grid', gap: '1.25rem' }}>
+                            {/* AI Recommendation */}
+                            <div className="card">
+                                <div className="data-section-title">🤖 AI Recommendation</div>
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                    <span style={{
+                                        fontSize: '1.1rem', fontWeight: 700,
+                                        padding: '.5rem 1rem', borderRadius: 8,
+                                        background: merchant.ai_report.recommendation === 'Approve' ? '#f0fdf4' : merchant.ai_report.recommendation === 'Reject' ? '#fef2f2' : '#fffbeb',
                                         color: merchant.ai_report.recommendation === 'Approve' ? '#166534' : merchant.ai_report.recommendation === 'Reject' ? '#991b1b' : '#854d0e',
-                                    }}
-                                >
-                                    {merchant.ai_report.recommendation}
-                                </span>
-                                <span style={{ color: 'var(--text-dim)' }}>Confidence: {merchant.ai_report.confidence}</span>
+                                        border: `1px solid ${merchant.ai_report.recommendation === 'Approve' ? '#bbf7d0' : merchant.ai_report.recommendation === 'Reject' ? '#fecaca' : '#fde68a'}`,
+                                    }}>
+                                        {merchant.ai_report.recommendation}
+                                    </span>
+                                    <span style={{ color: '#6b7280', fontSize: '.9rem' }}>
+                                        Confidence: <strong>{merchant.ai_report.confidence}</strong>
+                                    </span>
+                                </div>
                             </div>
-                        </div>
 
-                        {/* Risk Factors */}
-                        <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>📊 Risk Factor Analysis</h3>
-                            <div style={{ display: 'grid', gap: '1rem' }}>
-                                {merchant.ai_report.risk_factors?.map((factor, idx) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                        <div>
-                                            <div style={{ fontWeight: '500' }}>{factor.factor}</div>
-                                            <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>{factor.status}</div>
+                            {/* Risk Factors */}
+                            <div className="card">
+                                <div className="data-section-title">📊 Risk Factor Analysis</div>
+                                <div style={{ display: 'grid', gap: '.75rem' }}>
+                                    {merchant.ai_report.risk_factors?.map((factor, idx) => (
+                                        <div key={idx} style={{
+                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            padding: '.75rem 1rem', background: '#f9fafb', borderRadius: 8,
+                                            border: '1px solid #f3f4f6',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: '#1f2937' }}>{factor.factor}</div>
+                                                <div style={{ fontSize: '.8rem', color: '#6b7280' }}>{factor.status}</div>
+                                            </div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: getScoreColor(factor.score) }}>
+                                                {factor.score}
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: '1.25rem', fontWeight: '700', color: getScoreColor(factor.score) }}>
-                                            {factor.score}
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
-                        </div>
 
-                        {/* Document Verification */}
-                        <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>📄 Document Verification</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Aadhaar</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.document_verification?.aadhaar?.status}</div>
-                                    <div style={{ fontSize: '.8rem', fontFamily: 'monospace' }}>{merchant.ai_report.document_verification?.aadhaar?.number}</div>
-                                </div>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>PAN</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.document_verification?.pan?.status}</div>
-                                    <div style={{ fontSize: '.8rem', fontFamily: 'monospace' }}>{merchant.ai_report.document_verification?.pan?.number}</div>
-                                </div>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Selfie Match</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.document_verification?.selfie_match}</div>
+                            {/* Document Verification */}
+                            <div className="card">
+                                <div className="data-section-title">📄 Document Verification</div>
+                                <div className="data-grid">
+                                    <DataItem label="Aadhaar Status" value={merchant.ai_report.document_verification?.aadhaar?.status} />
+                                    <DataItem label="Aadhaar Number" value={merchant.ai_report.document_verification?.aadhaar?.number} mono />
+                                    <DataItem label="PAN Status" value={merchant.ai_report.document_verification?.pan?.status} />
+                                    <DataItem label="PAN Number" value={merchant.ai_report.document_verification?.pan?.number} mono />
+                                    <DataItem label="Selfie Match" value={merchant.ai_report.document_verification?.selfie_match} />
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Business Verification */}
-                        <div className="card">
-                            <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>🏢 Business Verification</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>GST Status</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.business_verification?.gst_status}</div>
-                                </div>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>PAN Status</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.business_verification?.pan_status}</div>
-                                </div>
-                                <div style={{ padding: '.75rem', background: '#f9fafb', borderRadius: '8px' }}>
-                                    <div style={{ fontSize: '.8rem', color: 'var(--text-dim)' }}>Address Verified</div>
-                                    <div style={{ fontWeight: '500' }}>{merchant.ai_report.business_verification?.address_verified ? 'Yes' : 'No'}</div>
+                            {/* Business Verification */}
+                            <div className="card">
+                                <div className="data-section-title">🏢 Business Verification</div>
+                                <div className="data-grid">
+                                    <DataItem label="GST Status" value={merchant.ai_report.business_verification?.gst_status} />
+                                    <DataItem label="PAN Status" value={merchant.ai_report.business_verification?.pan_status} />
+                                    <DataItem label="Address Verified" value={merchant.ai_report.business_verification?.address_verified ? 'Yes ✓' : 'No ✕'} />
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
+                            <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>🤖</div>
+                            <p style={{ color: '#6b7280' }}>AI report data not available</p>
+                        </div>
+                    )
                 )}
 
                 {/* Admin Notes */}
                 <div className="card" style={{ marginTop: '1.5rem' }}>
-                    <h3 style={{ marginBottom: '1rem', fontWeight: '600' }}>📝 Admin Notes</h3>
+                    <div className="data-section-title">📝 Admin Notes</div>
                     <textarea
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
                         placeholder="Add notes about this merchant..."
                         rows={4}
-                        style={{ width: '100%', padding: '1rem', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '.95rem', resize: 'vertical' }}
+                        style={{
+                            width: '100%', padding: '1rem',
+                            border: '1.5px solid #e5e7eb', borderRadius: 8,
+                            fontSize: '.95rem', resize: 'vertical',
+                            fontFamily: 'inherit',
+                        }}
+                        onFocus={(e) => e.target.style.borderColor = '#22c55e'}
+                        onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
                     />
                     <button
                         className="btn btn-primary"
-                        style={{ marginTop: '1rem' }}
+                        style={{ marginTop: '.75rem' }}
                         onClick={handleSaveNotes}
                         disabled={saving}
                     >
-                        {saving ? <span className="spinner" /> : 'Save Notes'}
+                        {saving ? <span className="spinner" /> : '💾 Save Notes'}
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+/* ── Helper Component ──────────────────────────────────────────── */
+function DataItem({ label, value, mono }) {
+    return (
+        <div className="data-item">
+            <div className="data-item-label">{label}</div>
+            <div className={`data-item-value ${mono ? 'mono' : ''}`}>{value || 'N/A'}</div>
         </div>
     );
 }

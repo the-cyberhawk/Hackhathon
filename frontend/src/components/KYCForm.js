@@ -42,8 +42,8 @@ export default function KYCForm({ onComplete }) {
         setError(''); setSuccess(''); setLoading(true);
         try {
             await fn();
-            setSuccess('Saved!');
-            if (step < 4) setStep(step + 1);
+            setSuccess('Saved successfully! ✓');
+            if (step < 4) setTimeout(() => { setStep(step + 1); setSuccess(''); }, 600);
         } catch (err) {
             setError(err.response?.data?.detail || 'Something went wrong');
         } finally { setLoading(false); }
@@ -72,16 +72,32 @@ export default function KYCForm({ onComplete }) {
                 ))}
             </div>
 
+            {/* Step indicator text */}
+            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                <span style={{
+                    display: 'inline-block',
+                    padding: '.3rem .85rem',
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '999px',
+                    fontSize: '.8rem',
+                    fontWeight: 600,
+                    color: '#166534',
+                }}>
+                    Step {step + 1} of {STEPS.length} — {STEPS[step]}
+                </span>
+            </div>
+
             <div className="card">
-                {error && <div className="alert alert-danger">{error}</div>}
-                {success && <div className="alert alert-success">{success}</div>}
+                {error && <div className="alert alert-danger">⚠️ {error}</div>}
+                {success && <div className="alert alert-success">✓ {success}</div>}
 
                 {/* Step 1 — Personal Details */}
                 {step === 0 && (
                     <>
                         <div className="card-header">
-                            <h2>Personal Details</h2>
-                            <p>Tell us about yourself</p>
+                            <h2>👤 Personal Details</h2>
+                            <p>Tell us about yourself — this information helps verify your identity</p>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
@@ -121,8 +137,8 @@ export default function KYCForm({ onComplete }) {
                 {step === 1 && (
                     <>
                         <div className="card-header">
-                            <h2>Identity Verification</h2>
-                            <p>Upload your Aadhaar and PAN documents</p>
+                            <h2>🪪 Identity Verification</h2>
+                            <p>Upload clear photos of your Aadhaar and PAN documents</p>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
@@ -135,15 +151,15 @@ export default function KYCForm({ onComplete }) {
                             </div>
                         </div>
                         <div className="form-group">
-                            <label>Aadhaar Front</label>
+                            <label>📎 Aadhaar — Front Side</label>
                             <input type="file" accept="image/*" onChange={(e) => setAadhaarFront(e.target.files[0])} required />
                         </div>
                         <div className="form-group">
-                            <label>Aadhaar Back</label>
+                            <label>📎 Aadhaar — Back Side</label>
                             <input type="file" accept="image/*" onChange={(e) => setAadhaarBack(e.target.files[0])} required />
                         </div>
                         <div className="form-group">
-                            <label>PAN Card</label>
+                            <label>📎 PAN Card</label>
                             <input type="file" accept="image/*" onChange={(e) => setPanCard(e.target.files[0])} required />
                         </div>
                         <div style={{ display: 'flex', gap: '1rem' }}>
@@ -167,8 +183,8 @@ export default function KYCForm({ onComplete }) {
                 {step === 2 && (
                     <>
                         <div className="card-header">
-                            <h2>Business Details</h2>
-                            <p>Tell us about your business</p>
+                            <h2>🏢 Business Details</h2>
+                            <p>Tell us about your business — required for merchant onboarding</p>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
@@ -222,8 +238,8 @@ export default function KYCForm({ onComplete }) {
                 {step === 3 && (
                     <>
                         <div className="card-header">
-                            <h2>Bank Details</h2>
-                            <p>Enter your bank account information</p>
+                            <h2>🏦 Bank Details</h2>
+                            <p>Enter your bank account for payment settlements</p>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
@@ -246,7 +262,7 @@ export default function KYCForm({ onComplete }) {
                             </div>
                         </div>
                         <div className="form-group">
-                            <label>Cancelled Cheque (optional)</label>
+                            <label>📎 Cancelled Cheque (optional)</label>
                             <input type="file" accept="image/*,.pdf" onChange={(e) => setCancelledCheque(e.target.files[0])} />
                         </div>
                         <div style={{ display: 'flex', gap: '1rem' }}>
@@ -270,11 +286,31 @@ export default function KYCForm({ onComplete }) {
                 {step === 4 && (
                     <>
                         <div className="card-header">
-                            <h2>Selfie Verification</h2>
-                            <p>Upload a clear photo of yourself for face match</p>
+                            <h2>📸 Selfie Verification</h2>
+                            <p>Upload a clear, well-lit photo of yourself for face matching</p>
                         </div>
+
+                        {/* Selfie guidelines */}
+                        <div style={{
+                            padding: '1rem',
+                            background: '#f0fdf4',
+                            border: '1px solid #bbf7d0',
+                            borderRadius: 8,
+                            marginBottom: '1.25rem',
+                            fontSize: '.85rem',
+                            color: '#166534',
+                        }}>
+                            <strong>📋 Photo Guidelines:</strong>
+                            <ul style={{ marginTop: '.4rem', paddingLeft: '1.2rem' }}>
+                                <li>Face should be clearly visible</li>
+                                <li>Good lighting, no shadows</li>
+                                <li>No sunglasses or face coverings</li>
+                                <li>Plain background preferred</li>
+                            </ul>
+                        </div>
+
                         <div className="form-group">
-                            <label>Selfie Photo</label>
+                            <label>📎 Selfie Photo</label>
                             <input type="file" accept="image/*" onChange={(e) => setSelfie(e.target.files[0])} required />
                         </div>
                         <div style={{ display: 'flex', gap: '1rem' }}>
@@ -284,12 +320,18 @@ export default function KYCForm({ onComplete }) {
                                 fd.append('selfie', selfie);
                                 go(() => saveStep5(fd));
                             }}>
-                                {loading ? <span className="spinner" /> : 'Save Selfie'}
+                                {loading ? <span className="spinner" /> : 'Save Selfie ✓'}
                             </button>
                         </div>
-                        <div style={{ marginTop: '1.25rem' }}>
-                            <button className="btn btn-primary btn-block" disabled={loading} onClick={handleSubmit}
-                                style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <button className="btn btn-block" disabled={loading} onClick={handleSubmit}
+                                style={{
+                                    background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                                    color: 'white',
+                                    padding: '.85rem',
+                                    fontSize: '1rem',
+                                    boxShadow: '0 4px 14px rgba(22,163,74,.3)',
+                                }}>
                                 {loading ? <span className="spinner" /> : '🚀 Submit KYC for Review'}
                             </button>
                         </div>

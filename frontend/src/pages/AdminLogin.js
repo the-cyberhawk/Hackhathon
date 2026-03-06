@@ -26,12 +26,24 @@ export default function AdminLogin({ onLogin }) {
     return (
         <div className="auth-container">
             <div className="auth-card card fade-in">
-                <div className="card-header">
-                    <h2>🔐 Admin Portal</h2>
-                    <p>Sign in to access the merchant review dashboard</p>
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                    <div style={{
+                        width: 56, height: 56, borderRadius: 14,
+                        background: 'linear-gradient(135deg, #15803d, #166534)',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        marginBottom: '.75rem', boxShadow: '0 4px 14px rgba(22,163,74,.3)'
+                    }}>
+                        <span style={{ fontSize: '1.6rem' }}>🔐</span>
+                    </div>
+                    <h2 style={{ fontWeight: 800, fontSize: '1.6rem', color: '#166534', marginBottom: '.3rem' }}>
+                        Admin Portal
+                    </h2>
+                    <p style={{ color: '#6b7280', fontSize: '.95rem' }}>
+                        Sign in to access the merchant review dashboard
+                    </p>
                 </div>
 
-                {error && <div className="alert alert-danger">{error}</div>}
+                {error && <div className="alert alert-danger">⚠️ {error}</div>}
 
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
@@ -55,14 +67,22 @@ export default function AdminLogin({ onLogin }) {
                         />
                     </div>
                     <button className="btn btn-primary btn-block" disabled={loading}>
-                        {loading ? <span className="spinner" /> : 'Sign In as Admin'}
+                        {loading ? <span className="spinner" /> : 'Sign In as Admin →'}
                     </button>
                 </form>
 
-                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(0,0,0,0.03)', borderRadius: '8px', fontSize: '.85rem' }}>
+                <div style={{
+                    marginTop: '1.5rem',
+                    padding: '1rem',
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: 8,
+                    fontSize: '.85rem',
+                    color: '#166534',
+                }}>
                     <strong>Demo Credentials:</strong><br />
-                    Username: <code>admin</code><br />
-                    Password: <code>admin</code>
+                    Username: <code style={{ background: '#dcfce7', padding: '.1rem .4rem', borderRadius: 4 }}>admin</code><br />
+                    Password: <code style={{ background: '#dcfce7', padding: '.1rem .4rem', borderRadius: 4 }}>admin</code>
                 </div>
             </div>
         </div>

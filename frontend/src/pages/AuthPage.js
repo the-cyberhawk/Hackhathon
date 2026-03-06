@@ -53,21 +53,30 @@ export default function AuthPage({ onLogin }) {
     return (
         <div className="auth-container">
             <div className="auth-card card fade-in">
-                <div className="card-header">
-                    <h2>
-                        {mode === 'login' && '👋 Welcome Back'}
-                        {mode === 'signup' && '🚀 Create Account'}
-                        {mode === 'otp' && '🔐 Verify Phone'}
+                {/* Logo / Brand */}
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                    <div style={{
+                        width: 56, height: 56, borderRadius: 14,
+                        background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        marginBottom: '.75rem', boxShadow: '0 4px 14px rgba(22,163,74,.3)'
+                    }}>
+                        <span style={{ fontSize: '1.6rem' }}>🛡️</span>
+                    </div>
+                    <h2 style={{ fontWeight: 800, fontSize: '1.6rem', color: '#166534', marginBottom: '.3rem' }}>
+                        {mode === 'login' && 'Welcome Back'}
+                        {mode === 'signup' && 'Create Account'}
+                        {mode === 'otp' && 'Verify Phone'}
                     </h2>
-                    <p>
+                    <p style={{ color: '#6b7280', fontSize: '.95rem' }}>
                         {mode === 'login' && 'Sign in to your KYC dashboard'}
                         {mode === 'signup' && 'Start your merchant onboarding'}
                         {mode === 'otp' && 'Enter the OTP sent to your phone'}
                     </p>
                 </div>
 
-                {error && <div className="alert alert-danger">{error}</div>}
-                {info && <div className="alert alert-info">{info}</div>}
+                {error && <div className="alert alert-danger">⚠️ {error}</div>}
+                {info && <div className="alert alert-info">ℹ️ {info}</div>}
 
                 {mode === 'login' && (
                     <form onSubmit={handleLogin}>
@@ -80,7 +89,7 @@ export default function AuthPage({ onLogin }) {
                             <input type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required />
                         </div>
                         <button className="btn btn-primary btn-block" disabled={loading}>
-                            {loading ? <span className="spinner" /> : 'Sign In'}
+                            {loading ? <span className="spinner" /> : 'Sign In →'}
                         </button>
                         <div className="auth-toggle">
                             Don't have an account?{' '}
@@ -106,7 +115,7 @@ export default function AuthPage({ onLogin }) {
                             <input type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required />
                         </div>
                         <button className="btn btn-primary btn-block" disabled={loading}>
-                            {loading ? <span className="spinner" /> : 'Create Account'}
+                            {loading ? <span className="spinner" /> : 'Create Account →'}
                         </button>
                         <div className="auth-toggle">
                             Already have an account?{' '}
@@ -121,10 +130,12 @@ export default function AuthPage({ onLogin }) {
                     <form onSubmit={handleOtp}>
                         <div className="form-group">
                             <label>OTP Code</label>
-                            <input type="text" placeholder="123456" value={form.otp} onChange={set('otp')} maxLength={6} required />
+                            <input type="text" placeholder="123456" value={form.otp} onChange={set('otp')} maxLength={6} required
+                                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '.5rem', fontWeight: 700 }}
+                            />
                         </div>
                         <button className="btn btn-primary btn-block" disabled={loading}>
-                            {loading ? <span className="spinner" /> : 'Verify OTP'}
+                            {loading ? <span className="spinner" /> : 'Verify OTP →'}
                         </button>
                     </form>
                 )}
