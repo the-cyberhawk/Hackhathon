@@ -58,36 +58,48 @@ async def get_all_merchants():
     
     db = get_database()
     
-    # Get all KYC submissions
-    kyc_records = await db.kyc_data.find({}, {"_id": 0}).to_list(100)
+    # Get all verified users (merchants)
+    users = await db.users.find(
+        {"is_verified": True},
+        {"_id": 0, "password_hash": 0, "otp": 0, "otp_expiry": 0}
+    ).to_list(100)
     
-    # Get corresponding user data
     merchants = []
-    for kyc in kyc_records:
-        user = await db.users.find_one(
-            {"user_id": kyc["user_id"]},
-            {"_id": 0, "password_hash": 0, "otp": 0, "otp_expiry": 0}
-        )
-        if user:
-            merchant_data = {
-                "user_id": kyc["user_id"],
-                "email": user.get("email"),
-                "phone": user.get("phone"),
-                "is_verified": user.get("is_verified"),
-                "created_at": user.get("created_at"),
-                "kyc_status": kyc.get("status", "draft"),
-                "basic_details": kyc.get("basic_details"),
-                "identity_details": kyc.get("identity_details"),
-                "business_details": kyc.get("business_details"),
-                "bank_details": kyc.get("bank_details"),
-                "documents": _get_document_urls(kyc),
-                "admin_notes": kyc.get("admin_notes", ""),
-                "ai_score": kyc.get("ai_score", _generate_ai_score(kyc)),
-                "risk_level": kyc.get("risk_level", _calculate_risk_level(kyc)),
-                "submitted_at": kyc.get("submitted_at"),
-                "updated_at": kyc.get("updated_at"),
+    for user in users:
+        # Get KYC data if exists
+        kyc = await db.kyc_data.find_one({"user_id": user["user_id"]}, {"_id": 0})
+        
+        # If no KYC data, create a minimal record
+        if not kyc:
+            kyc = {
+                "user_id": user["user_id"],
+                "status": "not_started",
+                "basic_details": None,
+                "identity_details": None,
+                "business_details": None,
+                "bank_details": None,
             }
-            merchants.append(merchant_data)
+        
+        merchant_data = {
+            "user_id": user["user_id"],
+            "mid": user.get("mid") or kyc.get("mid"),
+            "email": user.get("email"),
+            "phone": user.get("phone"),
+            "is_verified": user.get("is_verified"),
+            "created_at": user.get("created_at"),
+            "kyc_status": kyc.get("status", "not_started"),
+            "basic_details": kyc.get("basic_details"),
+            "identity_details": kyc.get("identity_details"),
+            "business_details": kyc.get("business_details"),
+            "bank_details": kyc.get("bank_details"),
+            "documents": _get_document_urls(kyc) if kyc.get("status") != "not_started" else {},
+            "admin_notes": kyc.get("admin_notes", ""),
+            "ai_score": kyc.get("ai_score") or _generate_ai_score(kyc) if kyc.get("status") != "not_started" else 0,
+            "risk_level": kyc.get("risk_level") or _calculate_risk_level(kyc) if kyc.get("status") != "not_started" else "N/A",
+            "submitted_at": kyc.get("submitted_at"),
+            "updated_at": kyc.get("updated_at"),
+        }
+        merchants.append(merchant_data)
     
     logger.info(f"[ADMIN] Found {len(merchants)} merchants")
     return {"merchants": merchants, "count": len(merchants)}
@@ -103,10 +115,6 @@ async def get_merchant_detail(user_id: str):
     
     db = get_database()
     
-    kyc = await db.kyc_data.find_one({"user_id": user_id}, {"_id": 0})
-    if not kyc:
-        raise HTTPException(status_code=404, detail="Merchant KYC not found")
-    
     user = await db.users.find_one(
         {"user_id": user_id},
         {"_id": 0, "password_hash": 0, "otp": 0, "otp_expiry": 0}
@@ -114,22 +122,45 @@ async def get_merchant_detail(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    kyc = await db.kyc_data.find_one({"user_id": user_id}, {"_id": 0})
+    
+    # If no KYC data exists, create a minimal structure
+    if not kyc:
+        kyc = {
+            "user_id": user_id,
+            "status": "not_started",
+            "basic_details": None,
+            "identity_details": None,
+            "business_details": None,
+            "bank_details": None,
+        }
+    
+    # Generate AI report only if KYC has been started
+    ai_report = _generate_ai_report(kyc, user) if kyc.get("status") != "not_started" else {
+        "recommendation": "Pending",
+        "confidence": "0%",
+        "risk_factors": [],
+        "document_verification": {},
+        "business_verification": {}
+    }
+    
     return {
         "user_id": user_id,
+        "mid": user.get("mid") or kyc.get("mid"),
         "email": user.get("email"),
         "phone": user.get("phone"),
         "is_verified": user.get("is_verified"),
         "created_at": user.get("created_at"),
-        "kyc_status": kyc.get("status", "draft"),
+        "kyc_status": kyc.get("status", "not_started"),
         "basic_details": kyc.get("basic_details"),
         "identity_details": kyc.get("identity_details"),
         "business_details": kyc.get("business_details"),
         "bank_details": kyc.get("bank_details"),
-        "documents": _get_document_urls(kyc),
+        "documents": _get_document_urls(kyc) if kyc.get("status") != "not_started" else {},
         "admin_notes": kyc.get("admin_notes", ""),
-        "ai_score": kyc.get("ai_score", _generate_ai_score(kyc)),
-        "risk_level": kyc.get("risk_level", _calculate_risk_level(kyc)),
-        "ai_report": _generate_ai_report(kyc, user),
+        "ai_score": kyc.get("ai_score") or _generate_ai_score(kyc) if kyc.get("status") != "not_started" else 0,
+        "risk_level": kyc.get("risk_level") or _calculate_risk_level(kyc) if kyc.get("status") != "not_started" else "N/A",
+        "ai_report": ai_report,
         "submitted_at": kyc.get("submitted_at"),
         "updated_at": kyc.get("updated_at"),
     }
@@ -246,16 +277,20 @@ def _get_document_urls(kyc: dict) -> dict:
         for field in doc_fields:
             stored_value = kyc.get(field)
             if stored_value:
-                logger.info(f"[ADMIN] Processing {field}: {stored_value}")
-                # Extract just the S3 key from the full URL if needed
-                s3_key = _extract_s3_key_from_url(stored_value, bucket_name, region)
-                logger.info(f"[ADMIN] Extracted key for {field}: {s3_key}")
-                
-                if s3_key:
-                    # Generate presigned URL valid for 1 hour
-                    presigned_url = s3_client.generate_presigned_url(s3_key, expiration=3600)
-                    documents[field] = presigned_url if presigned_url else stored_value
-                else:
+                try:
+                    logger.info(f"[ADMIN] Processing {field}: {stored_value}")
+                    # Extract just the S3 key from the full URL if needed
+                    s3_key = _extract_s3_key_from_url(stored_value, bucket_name, region)
+                    logger.info(f"[ADMIN] Extracted key for {field}: {s3_key}")
+                    
+                    if s3_key:
+                        # Generate presigned URL valid for 1 hour
+                        presigned_url = s3_client.generate_presigned_url(s3_key, expiration=3600)
+                        documents[field] = presigned_url if presigned_url else stored_value
+                    else:
+                        documents[field] = stored_value
+                except Exception as field_error:
+                    logger.warning(f"[ADMIN] Error processing {field}: {field_error}")
                     documents[field] = stored_value
             else:
                 documents[field] = None

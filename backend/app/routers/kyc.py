@@ -27,19 +27,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kyc", tags=["KYC"])
 
 
-def _save_upload(upload: UploadFile, folder: str = "kyc-documents") -> str:
+def _save_upload(upload: UploadFile, mid: str, field_name: str) -> str:
     """
-    Upload file to S3 and return the S3 URL.
+    Upload file to S3 with MID-based folder structure and proper naming.
     
     Args:
         upload: File to upload
-        folder: S3 folder name
+        mid: Merchant ID for folder organization
+        field_name: Field name for file naming (e.g., 'aadhaar_front', 'pan_card')
         
     Returns:
         str: S3 URL of uploaded file
     """
     s3 = get_s3_client()
-    s3_url = s3.upload_file(upload, folder=folder)
+    
+    # Get file extension from original filename
+    ext = ""
+    if upload.filename and "." in upload.filename:
+        ext = upload.filename.split(".")[-1].lower()
+    
+    # Create filename: MID_fieldname.ext (e.g., MID-20260306-A7B2_aadhaar_front.jpg)
+    filename = f"{mid}_{field_name}.{ext}" if ext else f"{mid}_{field_name}"
+    
+    # Upload to merchants/{mid}/ folder
+    folder = f"merchants/{mid}"
+    
+    s3_url = s3.upload_file(upload, folder=folder, custom_filename=filename)
+    logger.info(f"[KYC] Uploaded {field_name} for {mid}: {s3_url}")
     return s3_url
 
 
@@ -72,12 +86,17 @@ async def save_step1(
     data: BasicDetails, current_user: dict = Depends(get_current_user)
 ):
     """Save personal / address information."""
-    logger.info(f"[STEP 1] User: {current_user['user_id']}")
+    mid = current_user.get("mid")
+    if not mid:
+        raise HTTPException(status_code=400, detail="Merchant ID not assigned. Please complete verification first.")
+    
+    logger.info(f"[STEP 1] User: {current_user['user_id']}, MID: {mid}")
     logger.info(f"[STEP 1] Received data: {data.model_dump()}")
     
     db = get_database()
     update_data = {
         "user_id": current_user["user_id"],
+        "mid": mid,
         "basic_details": data.model_dump(),
         "status": KYCStatus.DRAFT,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -90,10 +109,10 @@ async def save_step1(
         await db.kyc_data.update_one(
             {"user_id": current_user["user_id"]}, {"$set": update_data}
         )
-        logger.info(f"[STEP 1] Updated existing record for user: {current_user['user_id']}")
+        logger.info(f"[STEP 1] Updated existing record for MID: {mid}")
     else:
         await db.kyc_data.insert_one(update_data)
-        logger.info(f"[STEP 1] Created new KYC record for user: {current_user['user_id']}")
+        logger.info(f"[STEP 1] Created new KYC record for MID: {mid}")
 
     return {"message": "Step 1 saved", "status": "success"}
 
@@ -111,7 +130,11 @@ async def save_step2(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload Aadhaar & PAN images along with their numbers."""
-    logger.info(f"[STEP 2] User: {current_user['user_id']}")
+    mid = current_user.get("mid")
+    if not mid:
+        raise HTTPException(status_code=400, detail="Merchant ID not assigned. Please complete verification first.")
+    
+    logger.info(f"[STEP 2] MID: {mid}")
     logger.info(f"[STEP 2] Aadhaar: {aadhaar_number}, PAN: {pan_number}")
     logger.info(f"[STEP 2] Files: aadhaar_front={aadhaar_front.filename}, aadhaar_back={aadhaar_back.filename}, pan_card={pan_card.filename}")
     
@@ -121,9 +144,9 @@ async def save_step2(
             "aadhaar_number": aadhaar_number,
             "pan_number": pan_number,
         },
-        "aadhaar_front": _save_upload(aadhaar_front),
-        "aadhaar_back": _save_upload(aadhaar_back),
-        "pan_card": _save_upload(pan_card),
+        "aadhaar_front": _save_upload(aadhaar_front, mid, "aadhaar_front"),
+        "aadhaar_back": _save_upload(aadhaar_back, mid, "aadhaar_back"),
+        "pan_card": _save_upload(pan_card, mid, "pan_card"),
         "status": KYCStatus.DRAFT,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -131,7 +154,7 @@ async def save_step2(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
-    logger.info(f"[STEP 2] Saved identity documents for user: {current_user['user_id']}")
+    logger.info(f"[STEP 2] Saved identity documents for MID: {mid}")
     return {"message": "Step 2 saved", "status": "success"}
 
 
@@ -143,7 +166,8 @@ async def save_step3(
     data: BusinessDetails, current_user: dict = Depends(get_current_user)
 ):
     """Save business / GST information."""
-    logger.info(f"[STEP 3] User: {current_user['user_id']}")
+    mid = current_user.get("mid", "unknown")
+    logger.info(f"[STEP 3] MID: {mid}")
     logger.info(f"[STEP 3] Business data: {data.model_dump()}")
     
     db = get_database()
@@ -156,7 +180,7 @@ async def save_step3(
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
-    logger.info(f"[STEP 3] Saved business details for user: {current_user['user_id']}")
+    logger.info(f"[STEP 3] Saved business details for MID: {mid}")
     return {"message": "Step 3 saved", "status": "success"}
 
 
@@ -173,7 +197,11 @@ async def save_step4(
     current_user: dict = Depends(get_current_user),
 ):
     """Save bank account details and optional cancelled cheque."""
-    logger.info(f"[STEP 4] User: {current_user['user_id']}")
+    mid = current_user.get("mid")
+    if not mid:
+        raise HTTPException(status_code=400, detail="Merchant ID not assigned.")
+    
+    logger.info(f"[STEP 4] MID: {mid}")
     logger.info(f"[STEP 4] Bank: {bank_name}, Account: {account_number}, IFSC: {ifsc_code}")
     logger.info(f"[STEP 4] Cancelled cheque: {cancelled_cheque.filename if cancelled_cheque else 'None'}")
     
@@ -190,12 +218,12 @@ async def save_step4(
     }
 
     if cancelled_cheque:
-        update_data["cancelled_cheque"] = _save_upload(cancelled_cheque)
+        update_data["cancelled_cheque"] = _save_upload(cancelled_cheque, mid, "cancelled_cheque")
 
     await db.kyc_data.update_one(
         {"user_id": current_user["user_id"]}, {"$set": update_data}, upsert=True
     )
-    logger.info(f"[STEP 4] Saved bank details for user: {current_user['user_id']}")
+    logger.info(f"[STEP 4] Saved bank details for MID: {mid}")
     return {"message": "Step 4 saved", "status": "success"}
 
 
@@ -208,12 +236,16 @@ async def save_step5(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload a selfie for facial verification."""
-    logger.info(f"[STEP 5] User: {current_user['user_id']}")
+    mid = current_user.get("mid")
+    if not mid:
+        raise HTTPException(status_code=400, detail="Merchant ID not assigned.")
+    
+    logger.info(f"[STEP 5] MID: {mid}")
     logger.info(f"[STEP 5] Selfie file: {selfie.filename}")
     
     db = get_database()
     update_data = {
-        "selfie": _save_upload(selfie),
+        "selfie": _save_upload(selfie, mid, "selfie"),
         "status": KYCStatus.DRAFT,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -260,6 +292,8 @@ async def submit_kyc(current_user: dict = Depends(get_current_user)):
 @router.get("/data", response_model=KYCDataResponse)
 async def get_kyc_data(current_user: dict = Depends(get_current_user)):
     """Return the full KYC record for the authenticated user."""
+    from app.routers.admin import _get_document_urls
+    
     db = get_database()
     kyc_data = await db.kyc_data.find_one(
         {"user_id": current_user["user_id"]}, {"_id": 0}
@@ -267,5 +301,8 @@ async def get_kyc_data(current_user: dict = Depends(get_current_user)):
 
     if not kyc_data:
         raise HTTPException(status_code=404, detail="No KYC data found")
+
+    # Add presigned URLs to a nested documents dict for the frontend
+    kyc_data["documents"] = _get_document_urls(kyc_data)
 
     return kyc_data

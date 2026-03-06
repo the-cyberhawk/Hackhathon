@@ -20,6 +20,7 @@ from app.models.user import (
     TokenResponse,
 )
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.mid_generator import get_unique_mid
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -102,19 +103,26 @@ async def verify_otp(request: OTPVerify):
         logger.warning(f"[VERIFY-OTP] OTP expired for phone: {request.phone}")
         raise HTTPException(status_code=400, detail="OTP expired")
 
+    # Generate unique MID for the merchant if not already assigned
+    mid = user.get("mid")
+    if not mid:
+        mid = await get_unique_mid()
+        logger.info(f"[VERIFY-OTP] Generated new MID: {mid}")
+
     await db.users.update_one(
         {"phone": request.phone},
-        {"$set": {"is_verified": True, "otp": None}},
+        {"$set": {"is_verified": True, "otp": None, "mid": mid}},
     )
 
     user = await db.users.find_one({"phone": request.phone}, {"_id": 0})
-    token = create_access_token({"sub": user["user_id"]})
-    logger.info(f"[VERIFY-OTP] User verified successfully: {user['user_id']}")
+    token = create_access_token({"sub": user["user_id"], "mid": user["mid"]})
+    logger.info(f"[VERIFY-OTP] User verified successfully: {user['user_id']}, MID: {user['mid']}")
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": {
             "user_id": user["user_id"],
+            "mid": user["mid"],
             "email": user["email"],
             "phone": user["phone"],
             "is_verified": user["is_verified"],
@@ -139,13 +147,14 @@ async def login(request: LoginRequest):
         logger.warning(f"[LOGIN] User not verified: {request.identifier}")
         raise HTTPException(status_code=403, detail="Please verify your phone number first")
 
-    token = create_access_token({"sub": user["user_id"]})
-    logger.info(f"[LOGIN] Login successful: user_id={user['user_id']}")
+    token = create_access_token({"sub": user["user_id"], "mid": user.get("mid")})
+    logger.info(f"[LOGIN] Login successful: user_id={user['user_id']}, MID={user.get('mid')}")
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": {
             "user_id": user["user_id"],
+            "mid": user.get("mid"),
             "email": user["email"],
             "phone": user["phone"],
             "is_verified": user["is_verified"],
