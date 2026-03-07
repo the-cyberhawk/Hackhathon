@@ -239,8 +239,11 @@ async def save_admin_notes(notes_update: NotesUpdate):
 async def generate_ai_report(user_id: str):
     """
     Generate an AI risk report for a merchant using Amazon Bedrock.
-    Sends KYC data to Claude with a simple prompt and returns structured JSON.
-    Falls back to deterministic mock if Bedrock is not configured/reachable.
+    Calls Cashfree APIs (GST, PAN, Bank, Aadhaar via the new cashfree service),
+    calls Rekognition for face matching, then feeds ALL real verification results
+    into the Bedrock prompt so Bedrock computes a real risk score.
+    Falls back to deriving the risk score from real API results (not just document completeness)
+    if Bedrock is unavailable.
     """
     logger.info(f"[AI REPORT] Generating for user_id={user_id}")
 
@@ -249,27 +252,96 @@ async def generate_ai_report(user_id: str):
     if not kyc:
         raise HTTPException(status_code=404, detail="Merchant not found")
 
-    # Build a concise merchant summary for the prompt
+    # Initialize verification results
+    gst_verification = {"status": "Not Provided", "details": None}
+    pan_verification = {"status": "Not Provided", "details": None}
+    bank_verification = {"status": "Not Provided", "details": None}
+    aadhaar_verification = {"status": "Not Provided", "details": None}
+    face_match = {
+        "selfie_vs_aadhaar": {"similarity": None, "status": "skipped"},
+        "selfie_vs_pan": {"similarity": None, "status": "skipped"},
+    }
+
+    # Extract relevant KYC data
     bd = kyc.get("basic_details") or {}
     biz = kyc.get("business_details") or {}
     bank = kyc.get("bank_details") or {}
     identity = kyc.get("identity_details") or {}
 
-    merchant_summary = f"""
-Merchant KYC Summary:
-- Name: {bd.get('full_name', 'N/A')}
-- Business: {biz.get('business_name', 'N/A')} ({biz.get('business_type', 'N/A')})
-- GST: {biz.get('gst_number', 'Not provided')}
-- PAN: {identity.get('pan_number', 'Not provided')}
-- Aadhaar: {'Provided' if identity.get('aadhaar_number') else 'Not provided'}
-- Bank: {bank.get('bank_name', 'N/A')}, IFSC: {bank.get('ifsc_code', 'N/A')}
-- Documents uploaded: Aadhaar={'Yes' if kyc.get('aadhaar_front') else 'No'}, PAN={'Yes' if kyc.get('pan_card') else 'No'}, Cheque={'Yes' if kyc.get('cancelled_cheque') else 'No'}, Selfie={'Yes' if kyc.get('selfie') else 'No'}
-- City: {biz.get('business_city', 'N/A')}, State: {biz.get('business_state', 'N/A')}
-""".strip()
+    # ── Cashfree API Calls ──────────────────────────────────────────────────
+    from app.services.cashfree import verify_gst, verify_pan, verify_bank_account, verify_aadhaar_bytes
+    from app.config import settings as _cfg
+    import asyncio
+
+    # GST Verification
+    if biz.get("gst_number"):
+        try:
+            gst_verification = verify_gst(biz["gst_number"])
+            # Normalise to {status, details} shape
+            if gst_verification.get("gst_in_status") == "Active":
+                gst_verification = {"status": "Verified", "details": gst_verification}
+            else:
+                gst_verification = {"status": gst_verification.get("gst_in_status", "Failed"), "details": gst_verification}
+            logger.info(f"[AI REPORT] GST verification for {user_id}: {gst_verification['status']}")
+        except Exception as e:
+            logger.warning(f"[AI REPORT] GST verification failed for {user_id}: {e}")
+            gst_verification["status"] = "Error"
+
+    # PAN Verification
+    if identity.get("pan_number"):
+        try:
+            pan_verification = verify_pan(identity["pan_number"])
+            if pan_verification.get("valid") is True:
+                pan_verification = {"status": "Verified", "details": pan_verification}
+            else:
+                pan_verification = {"status": "Failed", "details": pan_verification}
+            logger.info(f"[AI REPORT] PAN verification for {user_id}: {pan_verification['status']}")
+        except Exception as e:
+            logger.warning(f"[AI REPORT] PAN verification failed for {user_id}: {e}")
+            pan_verification["status"] = "Error"
+
+    # Bank Account Verification
+    if bank.get("account_number") and bank.get("ifsc_code"):
+        try:
+            bank_raw = verify_bank_account(bank["account_number"], bank["ifsc_code"])
+            if bank_raw.get("account_status_code") == "ACCOUNT_IS_VALID":
+                bank_verification = {"status": "Verified", "details": bank_raw}
+            else:
+                bank_verification = {"status": bank_raw.get("account_status", "Failed"), "details": bank_raw}
+            logger.info(f"[AI REPORT] Bank verification for {user_id}: {bank_verification['status']}")
+        except Exception as e:
+            logger.warning(f"[AI REPORT] Bank verification failed for {user_id}: {e}")
+            bank_verification["status"] = "Error"
+
+    # Aadhaar OCR — fetch image bytes from S3 then call Cashfree Bharat OCR
+    aadhaar_url = kyc.get("aadhaar_front")
+    if aadhaar_url:
+        try:
+            import boto3 as _boto3_aadh
+            s3_client_obj = get_s3_client()
+            bucket = s3_client_obj.bucket_name
+            region = s3_client_obj.region
+            s3_key = _extract_s3_key_from_url(aadhaar_url, bucket, region)
+            if s3_key:
+                s3 = _boto3_aadh.client(
+                    "s3",
+                    region_name=region,
+                    aws_access_key_id=_cfg.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=_cfg.AWS_SECRET_ACCESS_KEY,
+                )
+                obj = s3.get_object(Bucket=bucket, Key=s3_key)
+                image_bytes = obj["Body"].read()
+                aadh_raw = verify_aadhaar_bytes(image_bytes)
+                if aadh_raw.get("status") == "VALID":
+                    aadhaar_verification = {"status": "Verified", "details": aadh_raw}
+                else:
+                    aadhaar_verification = {"status": aadh_raw.get("status", "Failed"), "details": aadh_raw}
+                logger.info(f"[AI REPORT] Aadhaar OCR for {user_id}: {aadhaar_verification['status']}")
+        except Exception as aadh_err:
+            logger.warning(f"[AI REPORT] Aadhaar OCR failed: {aadh_err}")
+            aadhaar_verification["status"] = "Error"
 
     # ── AWS Rekognition Face Comparison ────────────────────────────────────
-    # Compare selfie against Aadhaar and PAN card using the same IAM credentials
-    from app.config import settings as _cfg
     from urllib.parse import urlparse
 
     def _s3_obj_from_url(url: str) -> dict | None:
@@ -312,11 +384,6 @@ Merchant KYC Summary:
             if "AccessDenied" in err_msg or "not authorized" in err_msg:
                 return {"similarity": None, "status": "access_denied"}
             return {"similarity": None, "status": f"error: {type(rek_err).__name__}"}
-
-    face_match = {
-        "selfie_vs_aadhaar": {"similarity": None, "status": "skipped"},
-        "selfie_vs_pan": {"similarity": None, "status": "skipped"},
-    }
 
     try:
         import boto3 as _boto3
@@ -363,60 +430,86 @@ Merchant KYC Summary:
     rek_selfie_sim = face_match.get("selfie_vs_aadhaar", {}).get("similarity")
     rek_selfie_status = face_match.get("selfie_vs_aadhaar", {}).get("status", "skipped")
 
-    prompt = f"""You are a payment gateway risk analyst. Analyze this merchant's KYC data and return a comprehensive JSON risk report.
+    # Build a comprehensive merchant summary for the prompt, including verification results
+    merchant_summary = f"""
+Merchant KYC Summary:
+- Name: {bd.get('full_name', 'N/A')}
+- Business: {biz.get('business_name', 'N/A')} ({biz.get('business_type', 'N/A')})
+- Email: {kyc.get('email', 'N/A')}
+- Phone: {kyc.get('phone', 'N/A')}
+- KYC Status: {kyc.get('status', 'not_started')}
+- Submitted At: {kyc.get('submitted_at', 'N/A')}
 
-{merchant_summary}
+Document Uploads:
+- Aadhaar Front: {'Yes' if kyc.get('aadhaar_front') else 'No'}
+- Aadhaar Back: {'Yes' if kyc.get('aadhaar_back') else 'No'}
+- PAN Card: {'Yes' if kyc.get('pan_card') else 'No'}
+- Cancelled Cheque: {'Yes' if kyc.get('cancelled_cheque') else 'No'}
+- Selfie: {'Yes' if kyc.get('selfie') else 'No'}
+
+Cashfree Verification Results:
+- GST Number ({biz.get('gst_number', 'N/A')}): Status: {gst_verification['status']}
+  Details: {gst_verification['details']}
+- PAN Number ({identity.get('pan_number', 'N/A')}): Status: {pan_verification['status']}
+  Details: {pan_verification['details']}
+- Bank Account ({bank.get('account_number', 'N/A')}): Status: {bank_verification['status']}
+  Details: {bank_verification['details']}
+- Aadhaar Number ({identity.get('aadhaar_number', 'N/A')}): Status: {aadhaar_verification['status']}
+  Details: {aadhaar_verification['details']}
 
 AWS Rekognition Face Verification Results:
 {face_match_context}
 
+Based on all the above information, provide a comprehensive risk assessment.
+""".strip()
+
+    prompt = f"""You are a payment gateway risk analyst. Analyze this merchant's KYC data and all verification results. Return a comprehensive JSON risk report.
+
+{merchant_summary}
+
 Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 {{
-  "risk_score": <0-100, higher = more risk>,
+  "risk_score": <0-100 Trust Score: 100=perfect/low risk, 0=maximum risk. This MUST be the average of individual factor scores below>,
   "risk_level": "<Low|Medium|High>",
   "recommendation": "<APPROVE|MANUAL REVIEW|REJECT>",
-  "confidence": "<High|Medium|Low>",
+  "confidence": "<High|Medium|Low> (Set to 'Low' if critical docs/verifications fail, 'Medium' if some checks pass but others are missing, 'High' only if data is complete and verified)",
   "summary": "<2-3 sentence plain English assessment>",
-  "flags": [<list of specific risk flag strings, or empty list>],
+  "flags": [<list of specific risk flag strings, or empty list if none>],
   "risk_factors": [
-    {{"factor": "Document Authenticity", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
-    {{"factor": "Identity Match", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
-    {{"factor": "Business Legitimacy", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
-    {{"factor": "Website Trust", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
-    {{"factor": "Financial Profile", "score": <0-100>, "status": "<Good|Warning|Critical>"}},
-    {{"factor": "Social Media Presence", "score": <0-100>, "status": "<Good|Warning|Critical>"}}
+    {{"factor": "Document Authenticity", "score": <0-100 TRUST score: 0=forged/missing 100=fully verified>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Identity Match",        "score": <0-100 TRUST score: 0=no match/missing 100=strong match>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Business Legitimacy",   "score": <0-100 TRUST score: 0=GST invalid/missing 100=GST active>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Bank Verification",     "score": <0-100 TRUST score: 0=invalid/missing 100=account valid>, "status": "<Good|Warning|Critical>"}},
+    {{"factor": "Aadhaar Verification",  "score": <0-100 TRUST score: 0=forged/INVALID 100=VALID+genuine>, "status": "<Good|Warning|Critical>"}}
   ],
   "document_verification": {{
-    "aadhaar_card": {{"status": "<Valid|Invalid|Not Uploaded>", "confidence": <0-100>}},
-    "pan_card": {{"status": "<Valid|Invalid|Not Uploaded>", "confidence": <0-100>}},
+    "aadhaar_card": {{"status": "<Valid|Invalid|Not Uploaded|Not Verified>", "confidence": <0-100>}},
+    "pan_card":     {{"status": "<Valid|Invalid|Not Uploaded|Not Verified>", "confidence": <0-100>}},
     "selfie_match": {{"match_percentage": {round(rek_selfie_sim, 1) if rek_selfie_sim else "N/A"}, "status": "<Strong Match|Low Match|No Match|No Face Detected|Not Uploaded>"}}
   }},
   "business_verification": {{
-    "gst_status": "<Active|Not Provided|Invalid>",
-    "pan_status": "<Valid|Not Provided>",
+    "gst_status":       "<Active|Not Provided|Invalid|Verified|Not Verified>",
+    "pan_status":       "<Valid|Not Provided|Invalid|Verified|Not Verified>",
     "address_verified": <true|false>,
-    "business_age": "<e.g. 3 years 2 months or Unknown>",
-    "founder_info": "<one line about founder credibility based on available data>"
-  }},
-  "social_media": {{
-    "overall_score": <0-100>,
-    "platforms": {{
-      "linkedin": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
-      "facebook": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
-      "instagram": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}},
-      "twitter": {{"status": "<Active|Not Found>", "followers": <estimated number>, "engagement": "<High|Medium|Low>"}}
-    }},
-    "summary": "<one sentence summary of social media credibility>"
+    "business_age":     "<e.g. 3 years 2 months or Unknown>",
+    "founder_info":     "<one line about founder credibility>"
   }},
   "financial_profile": {{
-    "score": <0-100>,
-    "business_age": "<e.g. 3 years 2 months>",
-    "estimated_revenue": "<e.g. ₹5-10 Cr annually>",
+    "score":               <0-100 TRUST score: 0=bank invalid/missing 100=verified active>,
+    "bank_account_status": "<Verified|Not Verified|Invalid|Not Provided>",
+    "estimated_revenue":   "<e.g. Rs 5-10 Cr annually>",
     "founder_credibility": "<High|Medium|Low> - <brief reason>",
     "registration_status": "<status string>",
     "financial_stability": "<brief assessment>"
   }}
-}}"""
+}}
+
+CRITICAL SCORING RULES — you MUST follow these exactly:
+- Cashfree status "Failed" or INVALID → factor trust score = 5 to 20, status = "Critical", AND overall "confidence" must be "Low"
+- Cashfree status "Verified" or Active → factor trust score = 80 to 100, status = "Good"
+- Status "Not Provided" (not submitted) → factor trust score = 30 to 50, status = "Warning", confidence should be "Low" or "Medium"
+- face no_face_detected or no_match → Identity Match trust score = 5 to 15, status = "Critical", confidence must be "Low"
+- risk_score = average trust score out of 100 (high average trust = higher score, which is good)"""
 
     bedrock_used = False
     report_data = None
@@ -504,73 +597,116 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         )
 
     except Exception as e:
-        logger.warning(f"[AI REPORT] Bedrock call failed ({type(e).__name__}): {e} — using deterministic mock")
+        logger.warning(f"[AI REPORT] Bedrock call failed ({type(e).__name__}): {e} — using deterministic fallback")
 
 
-    # ── Deterministic mock (same rich schema as the Bedrock response) ─────────
+    # ── Deterministic fallback (deriving score from real API results) ─────────
     if not report_data:
-        score = _generate_ai_score(kyc)
-        risk_level = _calculate_risk_level(kyc)
-        has_docs = all([kyc.get("aadhaar_front"), kyc.get("pan_card")])
-        has_selfie = bool(kyc.get("selfie"))
-        has_bank = bool(bank.get("ifsc_code") and bank.get("bank_name"))
-        has_gst = bool(biz.get("gst_number"))
-        has_pan = bool(identity.get("pan_number"))
-        has_aadhaar = bool(identity.get("aadhaar_number"))
-
+        # Calculate score based on actual verification results
+        score = 0
         flags = []
-        if not has_docs:  flags.append("Missing mandatory KYC documents")
-        if not has_gst:   flags.append("GST number not provided")
-        if not has_bank:  flags.append("Incomplete bank details")
-        if not has_selfie: flags.append("Selfie not uploaded – face verification skipped")
-        if score < 50:    flags.append("Low overall risk score – manual review required")
 
-        recommendation = "APPROVE" if score >= 70 else ("MANUAL REVIEW" if score >= 45 else "REJECT")
+        # Document Authenticity & Uploads
+        has_aadhaar_doc = bool(kyc.get("aadhaar_front"))
+        has_pan_doc = bool(kyc.get("pan_card"))
+        has_selfie_doc = bool(kyc.get("selfie"))
 
-        # Document score based on what's uploaded + Rekognition result
-        id_score = 90 if has_docs else 40
-        selfie_score = 0
-        selfie_status_label = "Not Uploaded"
-        if rek_selfie_sim:
-            selfie_score = rek_selfie_sim
-            selfie_status_label = "Strong Match" if rek_selfie_sim >= 80 else "Low Match"
-        elif rek_selfie_status == "no_face_detected":
-            selfie_status_label = "No Face Detected"
+        if has_aadhaar_doc: score += 10
+        else: flags.append("Missing Aadhaar document upload")
+        if has_pan_doc: score += 10
+        else: flags.append("Missing PAN document upload")
+        if has_selfie_doc: score += 5
+        else: flags.append("Missing Selfie upload")
+
+        # Cashfree GST
+        if gst_verification["status"] == "Verified":
+            score += 20
+        elif gst_verification["status"] == "Not Provided":
+            flags.append("GST number not provided")
+        else:
+            flags.append(f"GST verification: {gst_verification['status']}")
+
+        # Cashfree PAN
+        if pan_verification["status"] == "Verified":
+            score += 15
+        elif pan_verification["status"] == "Not Provided":
+            flags.append("PAN number not provided")
+        else:
+            flags.append(f"PAN verification: {pan_verification['status']}")
+
+        # Cashfree Bank
+        if bank_verification["status"] == "Verified":
+            score += 15
+        elif bank_verification["status"] == "Not Provided":
+            flags.append("Bank details not provided")
+        else:
+            flags.append(f"Bank verification: {bank_verification['status']}")
+
+        # Cashfree Aadhaar
+        if aadhaar_verification["status"] == "Verified":
+            score += 10
+        elif aadhaar_verification["status"] == "Not Provided":
+            flags.append("Aadhaar number not provided")
+        else:
+            flags.append(f"Aadhaar verification: {aadhaar_verification['status']}")
+
+        # Rekognition Face Match
+        if rek_selfie_sim and rek_selfie_sim >= 80:
+            score += 10
         elif rek_selfie_status == "no_match":
-            selfie_status_label = "No Match"
-            flags.append("Selfie does not match Aadhaar – identity mismatch risk")
+            flags.append("Selfie does not match Aadhaar/PAN (Rekognition)")
+        elif rek_selfie_status == "low_match":
+            flags.append("Low selfie match similarity (Rekognition)")
+        elif rek_selfie_status == "no_face_detected":
+            flags.append("No face detected in selfie or ID document (Rekognition)")
+        elif rek_selfie_status == "image_unavailable":
+            flags.append("Selfie or ID document image unavailable for Rekognition")
 
-        biz_name = biz.get("business_name", "the business")
+        score = min(100, max(0, score)) # Ensure score is within 0-100
+
+        risk_level = "Low"
+        if score < 50: risk_level = "High"
+        elif score < 75: risk_level = "Medium"
+
+        recommendation = "APPROVE" if score >= 75 else ("MANUAL REVIEW" if score >= 50 else "REJECT")
+
         full_name = bd.get("full_name", "The applicant")
+        biz_name = biz.get("business_name", "the business")
+
+        selfie_status_label = (
+            "Strong Match" if (rek_selfie_sim or 0) >= 80
+            else "Low Match" if (rek_selfie_sim or 0) > 0
+            else "No Match" if rek_selfie_status == "no_match"
+            else "No Face Detected" if rek_selfie_status == "no_face_detected"
+            else "Not Uploaded"
+        )
 
         report_data = {
             "risk_score": score,
             "risk_level": risk_level,
             "recommendation": recommendation,
-            "confidence": "High" if has_docs and has_gst else "Medium",
+            "confidence": "Low" if score < 50 else ("Medium" if score < 75 else "High"),
             "summary": (
-                f"{full_name} operates {biz_name} "
-                f"({'GST registered' if has_gst else 'no GST number provided'}) with a computed risk score of {score}/100. "
-                f"{'All key KYC documents are present.' if has_docs else 'Some mandatory documents are missing.'} "
-                f"Recommendation: {recommendation}."
+                f"{full_name} operating {biz_name} has a computed risk score of {score}/100. "
+                f"Key verifications show: GST {gst_verification['status']}, PAN {pan_verification['status']}, "
+                f"Bank {bank_verification['status']}. Recommendation: {recommendation}."
             ),
             "flags": flags if flags else ["No major risk flags detected"],
             "risk_factors": [
-                {"factor": "Document Authenticity", "score": 90 if has_docs else 40, "status": "Good" if has_docs else "Critical"},
-                {"factor": "Identity Match",         "score": int(rek_selfie_sim or 0) if rek_selfie_sim else (70 if has_aadhaar else 30), "status": "Good" if (rek_selfie_sim or 0) >= 80 else ("Warning" if has_aadhaar else "Critical")},
-                {"factor": "Business Legitimacy",    "score": 80 if has_gst else 50, "status": "Good" if has_gst else "Warning"},
-                {"factor": "Website Trust",          "score": 75, "status": "Good"},
-                {"factor": "Financial Profile",      "score": 80 if has_bank else 50, "status": "Good" if has_bank else "Warning"},
-                {"factor": "Social Media Presence",  "score": 70, "status": "Good"},
+                {"factor": "Document Authenticity", "score": (100 if has_aadhaar_doc and has_pan_doc else 50), "status": "Good" if has_aadhaar_doc and has_pan_doc else "Warning"},
+                {"factor": "Identity Match", "score": int(rek_selfie_sim or 0) if rek_selfie_sim else (70 if has_aadhaar_doc else 30), "status": "Good" if (rek_selfie_sim or 0) >= 80 else ("Warning" if has_aadhaar_doc else "Critical")},
+                {"factor": "Business Legitimacy", "score": (90 if gst_verification['status'] == 'Verified' else 40), "status": "Good" if gst_verification['status'] == 'Verified' else "Warning"},
+                {"factor": "Bank Verification", "score": (90 if bank_verification['status'] == 'Verified' else 40), "status": "Good" if bank_verification['status'] == 'Verified' else "Warning"},
+                {"factor": "Aadhaar Verification", "score": (90 if aadhaar_verification['status'] == 'Verified' else 40), "status": "Good" if aadhaar_verification['status'] == 'Verified' else "Warning"},
             ],
             "document_verification": {
                 "aadhaar_card": {
-                    "status": "Valid" if kyc.get("aadhaar_front") else "Not Uploaded",
-                    "confidence": 96 if kyc.get("aadhaar_front") else 0,
+                    "status": aadhaar_verification['status'],
+                    "confidence": 96 if aadhaar_verification['status'] == 'Verified' else 0,
                 },
                 "pan_card": {
-                    "status": "Valid" if kyc.get("pan_card") else "Not Uploaded",
-                    "confidence": 94 if kyc.get("pan_card") else 0,
+                    "status": pan_verification['status'],
+                    "confidence": 94 if pan_verification['status'] == 'Verified' else 0,
                 },
                 "selfie_match": {
                     "match_percentage": round(rek_selfie_sim, 1) if rek_selfie_sim else "N/A",
@@ -578,29 +714,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 },
             },
             "business_verification": {
-                "gst_status": "Active" if has_gst else "Not Provided",
-                "pan_status": "Valid" if has_pan else "Not Provided",
+                "gst_status": gst_verification['status'],
+                "pan_status": pan_verification['status'],
                 "address_verified": bool(biz.get("business_city") or biz.get("business_state")),
-                "business_age": "Unknown",
+                "business_age": "Unknown", # Cashfree APIs don't provide this directly
                 "founder_info": f"{full_name} – KYC verified applicant",
             },
-            "social_media": {
-                "overall_score": 70,
-                "platforms": {
-                    "linkedin":  {"status": "Active", "followers": 1200, "engagement": "Medium"},
-                    "facebook":  {"status": "Active", "followers": 800,  "engagement": "Medium"},
-                    "instagram": {"status": "Active", "followers": 500,  "engagement": "Low"},
-                    "twitter":   {"status": "Not Found", "followers": 0, "engagement": "Low"},
-                },
-                "summary": "Moderate social media presence; LinkedIn profile adds credibility.",
-            },
             "financial_profile": {
-                "score": 75 if has_bank else 50,
-                "business_age": "Unknown",
-                "estimated_revenue": "To be assessed",
-                "founder_credibility": f"{'High' if has_gst else 'Medium'} – {'GST registered business owner' if has_gst else 'No GST, limited verification'}",
-                "registration_status": "Registered" if has_gst or has_pan else "Partially registered",
-                "financial_stability": "Stable" if has_bank else "Pending bank verification",
+                "score": (90 if bank_verification['status'] == 'Verified' else 40),
+                "bank_account_status": bank_verification['status'],
+                "estimated_revenue": "To be assessed", # Not from Cashfree APIs
+                "founder_credibility": f"{'High' if gst_verification['status'] == 'Verified' else 'Medium'} – {'GST registered business owner' if gst_verification['status'] == 'Verified' else 'No GST, limited verification'}",
+                "registration_status": f"GST: {gst_verification['status']}, PAN: {pan_verification['status']}",
+                "financial_stability": "Stable" if bank_verification['status'] == 'Verified' else "Pending bank verification",
             },
         }
 
@@ -617,9 +743,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 
     return {
         "user_id": user_id,
-        "source": "bedrock" if bedrock_used else "mock",
-        "model": settings.AWS_BEDROCK_MODEL_ID if bedrock_used else "deterministic-mock",
+        "source": "bedrock" if bedrock_used else "fallback",
+        "model": settings.AWS_BEDROCK_MODEL_ID if bedrock_used else "deterministic-fallback",
         "face_match": face_match,
+        "cashfree_verifications": {
+            "gst": gst_verification,
+            "pan": pan_verification,
+            "bank": bank_verification,
+            "aadhaar": aadhaar_verification,
+        },
         **report_data,
     }
 
