@@ -81,10 +81,19 @@ export default function MerchantDetail({ userId, onBack }) {
     };
 
     const getScoreColor = (score) => {
+        // Trust score: higher is better → green
         if (score === 0) return '#6b7280';
         if (score >= 75) return '#16a34a';
         if (score >= 50) return '#ca8a04';
         return '#dc2626';
+    };
+
+    const getRiskScoreColor = (score) => {
+        // Risk score: higher is worse → red
+        if (!score && score !== 0) return '#6b7280';
+        if (score <= 30) return '#16a34a';   // Low risk → green
+        if (score <= 60) return '#ca8a04';   // Medium risk → yellow
+        return '#dc2626';                    // High risk → red
     };
 
     const getRiskBadge = (risk) => {
@@ -368,14 +377,18 @@ export default function MerchantDetail({ userId, onBack }) {
                                                 {merchant.ai_report.recommendation}
                                             </span>
                                             <span style={{ color: '#6b7280', fontSize: '.9rem' }}>
-                                                Confidence: <strong>{merchant.ai_report.confidence}</strong>
+                                                Confidence: <strong style={{
+                                                    color: merchant.ai_report.confidence === 'High' ? '#16a34a' :
+                                                        merchant.ai_report.confidence === 'Low' ? '#dc2626' :
+                                                            merchant.ai_report.confidence === 'Medium' ? '#ca8a04' : '#6b7280'
+                                                }}>{merchant.ai_report.confidence}</strong>
                                             </span>
                                         </div>
                                         {merchant.ai_report.summary && (
-                                            <div style={{ 
-                                                padding: '1rem', 
-                                                background: '#f9fafb', 
-                                                borderRadius: 8, 
+                                            <div style={{
+                                                padding: '1rem',
+                                                background: '#f9fafb',
+                                                borderRadius: 8,
                                                 color: '#374151',
                                                 lineHeight: '1.6'
                                             }}>
@@ -417,8 +430,8 @@ export default function MerchantDetail({ userId, onBack }) {
                                                 }}>
                                                     <div>
                                                         <div style={{ fontWeight: 600, color: '#1f2937' }}>{factor.factor}</div>
-                                                        <div style={{ 
-                                                            fontSize: '.8rem', 
+                                                        <div style={{
+                                                            fontSize: '.8rem',
                                                             color: factor.status === 'Good' ? '#16a34a' : factor.status === 'Critical' ? '#dc2626' : '#ca8a04',
                                                             fontWeight: 500
                                                         }}>
@@ -437,38 +450,52 @@ export default function MerchantDetail({ userId, onBack }) {
                                     <div className="card">
                                         <div className="data-section-title">📄 Document Verification</div>
                                         <div className="data-grid">
-                                            <DataItem 
-                                                label="Aadhaar Status" 
-                                                value={merchant.ai_report.document_verification?.aadhaar_card?.status || 
-                                                       merchant.ai_report.document_verification?.aadhaar?.status} 
+                                            <DataItem
+                                                label="Aadhaar Status"
+                                                value={merchant.ai_report.document_verification?.aadhaar_card?.status ||
+                                                    merchant.ai_report.document_verification?.aadhaar?.status}
+                                                color={(merchant.ai_report.document_verification?.aadhaar_card?.status === 'Valid' ||
+                                                    merchant.ai_report.document_verification?.aadhaar_card?.status === 'Verified') ? '#16a34a' :
+                                                    (merchant.ai_report.document_verification?.aadhaar_card?.status === 'Invalid' ||
+                                                        merchant.ai_report.document_verification?.aadhaar_card?.status === 'Failed') ? '#dc2626' : '#6b7280'}
                                             />
-                                            <DataItem 
-                                                label="Aadhaar Confidence" 
-                                                value={merchant.ai_report.document_verification?.aadhaar_card?.confidence ? 
-                                                       `${merchant.ai_report.document_verification.aadhaar_card.confidence}%` : 
-                                                       'N/A'} 
+                                            <DataItem
+                                                label="Aadhaar Confidence"
+                                                value={merchant.ai_report.document_verification?.aadhaar_card?.confidence ?
+                                                    `${merchant.ai_report.document_verification.aadhaar_card.confidence}%` :
+                                                    'N/A'}
+                                                color={getScoreColor(merchant.ai_report.document_verification?.aadhaar_card?.confidence || 0)}
                                             />
-                                            <DataItem 
-                                                label="PAN Status" 
-                                                value={merchant.ai_report.document_verification?.pan_card?.status || 
-                                                       merchant.ai_report.document_verification?.pan?.status} 
+                                            <DataItem
+                                                label="PAN Status"
+                                                value={merchant.ai_report.document_verification?.pan_card?.status ||
+                                                    merchant.ai_report.document_verification?.pan?.status}
+                                                color={(merchant.ai_report.document_verification?.pan_card?.status === 'Valid' ||
+                                                    merchant.ai_report.document_verification?.pan_card?.status === 'Verified') ? '#16a34a' :
+                                                    (merchant.ai_report.document_verification?.pan_card?.status === 'Invalid' ||
+                                                        merchant.ai_report.document_verification?.pan_card?.status === 'Failed') ? '#dc2626' : '#6b7280'}
                                             />
-                                            <DataItem 
-                                                label="PAN Confidence" 
-                                                value={merchant.ai_report.document_verification?.pan_card?.confidence ? 
-                                                       `${merchant.ai_report.document_verification.pan_card.confidence}%` : 
-                                                       'N/A'} 
+                                            <DataItem
+                                                label="PAN Confidence"
+                                                value={merchant.ai_report.document_verification?.pan_card?.confidence ?
+                                                    `${merchant.ai_report.document_verification.pan_card.confidence}%` :
+                                                    'N/A'}
+                                                color={getScoreColor(merchant.ai_report.document_verification?.pan_card?.confidence || 0)}
                                             />
-                                            <DataItem 
-                                                label="Selfie Match" 
-                                                value={merchant.ai_report.document_verification?.selfie_match?.status || 
-                                                       merchant.ai_report.document_verification?.selfie_match} 
+                                            <DataItem
+                                                label="Selfie Match"
+                                                value={merchant.ai_report.document_verification?.selfie_match?.status ||
+                                                    merchant.ai_report.document_verification?.selfie_match}
+                                                color={merchant.ai_report.document_verification?.selfie_match?.status === 'Strong Match' ? '#16a34a' :
+                                                    merchant.ai_report.document_verification?.selfie_match?.status === 'Low Match' ? '#ca8a04' :
+                                                        merchant.ai_report.document_verification?.selfie_match?.status === 'No Match' ? '#dc2626' : '#6b7280'}
                                             />
-                                            <DataItem 
-                                                label="Selfie Similarity" 
-                                                value={merchant.ai_report.document_verification?.selfie_match?.match_percentage ? 
-                                                       `${merchant.ai_report.document_verification.selfie_match.match_percentage}%` : 
-                                                       'N/A'} 
+                                            <DataItem
+                                                label="Selfie Similarity"
+                                                value={merchant.ai_report.document_verification?.selfie_match?.match_percentage ?
+                                                    `${merchant.ai_report.document_verification.selfie_match.match_percentage}%` :
+                                                    'N/A'}
+                                                color={getScoreColor(merchant.ai_report.document_verification?.selfie_match?.match_percentage || 0)}
                                             />
                                         </div>
                                     </div>
@@ -477,9 +504,23 @@ export default function MerchantDetail({ userId, onBack }) {
                                     <div className="card">
                                         <div className="data-section-title">🏢 Business Verification</div>
                                         <div className="data-grid">
-                                            <DataItem label="GST Status" value={merchant.ai_report.business_verification?.gst_status} />
-                                            <DataItem label="PAN Status" value={merchant.ai_report.business_verification?.pan_status} />
-                                            <DataItem label="Address Verified" value={merchant.ai_report.business_verification?.address_verified ? 'Yes ✓' : 'No ✕'} />
+                                            <DataItem
+                                                label="GST Status"
+                                                value={merchant.ai_report.business_verification?.gst_status}
+                                                color={merchant.ai_report.business_verification?.gst_status === 'Active' ||
+                                                    merchant.ai_report.business_verification?.gst_status === 'Verified' ? '#16a34a' :
+                                                    merchant.ai_report.business_verification?.gst_status === 'Invalid' ||
+                                                        merchant.ai_report.business_verification?.gst_status === 'Failed' ? '#dc2626' : '#6b7280'}
+                                            />
+                                            <DataItem
+                                                label="PAN Status"
+                                                value={merchant.ai_report.business_verification?.pan_status}
+                                                color={merchant.ai_report.business_verification?.pan_status === 'Valid' ||
+                                                    merchant.ai_report.business_verification?.pan_status === 'Verified' ? '#16a34a' :
+                                                    merchant.ai_report.business_verification?.pan_status === 'Invalid' ||
+                                                        merchant.ai_report.business_verification?.pan_status === 'Failed' ? '#dc2626' : '#6b7280'}
+                                            />
+                                            <DataItem label="Address Verified" value={merchant.ai_report.business_verification?.address_verified ? 'Yes ✓' : 'No ✕'} color={merchant.ai_report.business_verification?.address_verified ? '#16a34a' : '#ca8a04'} />
                                             {merchant.ai_report.business_verification?.business_age && (
                                                 <DataItem label="Business Age" value={merchant.ai_report.business_verification.business_age} />
                                             )}
@@ -600,11 +641,11 @@ export default function MerchantDetail({ userId, onBack }) {
 }
 
 /* ── Helper Component ──────────────────────────────────────────── */
-function DataItem({ label, value, mono }) {
+function DataItem({ label, value, mono, color }) {
     return (
         <div className="data-item">
             <div className="data-item-label">{label}</div>
-            <div className={`data-item-value ${mono ? 'mono' : ''}`}>{value || 'N/A'}</div>
+            <div className={`data-item-value ${mono ? 'mono' : ''}`} style={color ? { color, fontWeight: 700 } : {}}>{value || 'N/A'}</div>
         </div>
     );
 }

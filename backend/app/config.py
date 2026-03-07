@@ -43,4 +43,10 @@ class Settings:
     AWS_STEP_FUNCTION_ARN: str = os.environ.get("AWS_STEP_FUNCTION_ARN", "")
     AWS_STEP_FUNCTION_REGION: str = os.environ.get("AWS_STEP_FUNCTION_REGION", "us-east-1")
 
+    # Cashfree Verification API
+    CASHFREE_CLIENT_ID: str = os.environ.get("CASHFREE_CLIENT_ID", "")
+    CASHFREE_CLIENT_SECRET: str = os.environ.get("CASHFREE_CLIENT_SECRET", "")
+    CASHFREE_PUBLIC_KEY_PATH: str = os.environ.get("CASHFREE_PUBLIC_KEY_PATH", "cashfree_public_key.pem")
+    CASHFREE_BASE_URL: str = os.environ.get("CASHFREE_BASE_URL", "https://api.cashfree.com")
+
 settings = Settings()

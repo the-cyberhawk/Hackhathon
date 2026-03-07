@@ -61,10 +61,19 @@ export default function AdminDashboard({ onLogout }) {
     };
 
     const getScoreColor = (score) => {
+        // Trust score: higher is better → green
         if (score === 0) return '#9ca3af';
         if (score >= 75) return '#16a34a';
         if (score >= 50) return '#ca8a04';
         return '#dc2626';
+    };
+
+    const getRiskScoreColor = (score) => {
+        // Risk score: higher is worse → red
+        if (!score && score !== 0) return '#9ca3af';
+        if (score <= 30) return '#16a34a';   // Low risk → green
+        if (score <= 60) return '#ca8a04';   // Medium risk → yellow
+        return '#dc2626';                    // High risk → red
     };
 
     const stats = [
